@@ -141,7 +141,7 @@
 
   function renderRun(quiet) {
     const r = run(); if (!r) return; const rm = RUN.room(r), reg = D.REGIONS[r.regionId], h = r.hero, combat = r.mode === 'combat', ph = RUN.phaseDef(r);
-    $('#roomName').textContent = rm.name; $('#regionName').textContent = reg.name;
+    if (!quiet) $('#roomName').textContent = rm.name; $('#regionName').textContent = reg.name;
     const left = Math.max(0, r.limit - r.time), moon = $('#moon'); moon.className = 'moon' + (r.phase >= 2 ? ' red' : ''); moon.innerHTML = '<span title="' + ph.text + '">' + ['🌑', '🌘', '🌕', '👁'][r.phase] + ' ' + ph.name + '</span><div class="gauge" title="50% 술렁임 · 80% 붉은달 · 100% 추적자"><i style="width:' + Math.min(100, r.time / r.limit * 100) + '%"></i><b style="left:50%"></b><b style="left:80%"></b></div><span class="label">' + (left ? '붉은달까지 <b>' + left + '</b>' : '<b>추적자가 쫓는다</b>') + '</span>';
     const tb = $('#turnBanner'); if (!quiet || !tb.className.includes('enemy')) { tb.className = 'turnbanner' + (combat ? ' combat' : ''); tb.textContent = combat ? (r.pursuers.length && !RUN.alertIn(rm).length ? '추격당하는 중 · 내 턴 ' + r.turn : '전투 · 내 턴 ' + r.turn) : '탐사 중 · 이동 자유'; }
     const pips = (n, max, cls) => Array.from({ length: Math.max(n, max) }, (_, i) => '<i class="pip ' + cls + (i < n ? '' : ' off') + '"></i>').join('');

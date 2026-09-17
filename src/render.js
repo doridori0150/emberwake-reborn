@@ -24,7 +24,7 @@
     constructor(canvas) { this.cv = canvas; this.ctx = canvas.getContext('2d'); this.units = new Map(); this.floats = []; this.fx = []; this.overlay = {}; this.busy = false; this.speed = 1; this.fade = 0; this.shakeUntil = 0; this.run = null; this.vis = null; const loop = () => { this.draw(); requestAnimationFrame(loop); }; requestAnimationFrame(loop); }
     setRun(run) { this.run = run; this.units.clear(); this.floats = []; this.fx = []; if (run) this.sync(); }
     sync() {
-      const run = this.run, rm = RUN.room(run), keep = new Set(['hero']);
+      const run = this.run, rm = RUN.room(run), keep = new Set(['hero']); this.viewRoom = run.roomId; // 화면에 보이는 방은 여기서만 바뀐다(이동 연출 중에 새 방이 미리 보이지 않게)
       const put = (id, o) => { const u = this.units.get(id); if (u && !u.dead) Object.assign(u, o, { anim: u.anim === 'walk' ? 'idle' : u.anim }); else this.units.set(id, Object.assign({ id, anim: 'idle', t0: performance.now(), alpha: 1 }, o)); };
       put('hero', { hero: true, asset: D.HEROES[run.heroId].asset, x: run.hero.x, y: run.hero.y, dir: run.hero.facing, hp: run.hero.hp, maxHp: run.hero.maxHp, size: 58 });
       for (const e of RUN.alive(rm)) { keep.add(e.id); const d = D.ENEMIES[e.kind]; put(e.id, { asset: d.asset, tint: d.tint, x: e.x, y: e.y, dir: e.facing, hp: e.hp, maxHp: e.maxHp, size: d.size, e }); }
@@ -58,7 +58,10 @@
     }
     tileAt(clientX, clientY) { const r = this.cv.getBoundingClientRect(), x = Math.floor((clientX - r.left) / r.width * W), y = Math.floor((clientY - r.top) / r.height * H); return x >= 0 && y >= 0 && x < W && y < H ? { x, y } : null; }
 
-    draw() {
+    draw() { // 규칙은 문을 밟는 즉시 방을 바꾸지만, 화면은 방 전환 이벤트가 재생될 때까지 이전 방을 그린다.
+      const run = this.run; if (!run) return; const real = run.roomId; if (this.viewRoom != null && run.rooms[this.viewRoom]) run.roomId = this.viewRoom; try { this.paint(); } finally { run.roomId = real; }
+    }
+    paint() {
       const ctx = this.ctx, run = this.run, now = performance.now(); if (!run) return; const rm = RUN.room(run), reg = D.REGIONS[run.regionId], ov = this.overlay;
       ctx.imageSmoothingEnabled = false; ctx.save(); ctx.fillStyle = reg.ambient; ctx.fillRect(0, 0, W * T, H * T);
       if (now < this.shakeUntil) ctx.translate((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
