@@ -241,8 +241,13 @@
   // 도구가 관리하는 콘텐츠(content.js)를 합친다.
   const CONTENT = ER.CONTENT || {};
   for (const [k, v] of Object.entries(CONTENT.enemies || {})) ENEMIES[k] = Object.assign(ENEMIES[k] || {}, v);
-  for (const sp of CONTENT.spawns || []) { const def = REGIONS[sp.region]?.rooms_def[sp.room]; if (def && sp.group.every(k => ENEMIES[k])) def.enemies.push(sp.group.slice()); }
+  for (const q of Object.values(REGIONS)) for (const def of Object.values(q.rooms_def)) def.baseEnemies = def.enemies.map(gp => gp.slice());
+  function applySpawns(spawns) { // 기본 조합 + content 의 조합. 도구가 편집 중에도 다시 부른다.
+    for (const q of Object.values(REGIONS)) for (const def of Object.values(q.rooms_def)) def.enemies = def.baseEnemies.map(gp => gp.slice());
+    for (const sp of spawns || []) { const def = REGIONS[sp.region]?.rooms_def[sp.room]; if (def && sp.group.every(k => ENEMIES[k])) def.enemies.push(sp.group.slice()); }
+  }
+  applySpawns(CONTENT.spawns);
 
-  ER.data = { TRAITS, AI_TYPES, enemyNote, RULES, MATERIALS, CARDS, RESEARCH, HEROES, TRAINING, ENEMIES, REGIONS, CHESTS, ALTAR, FACILITIES, GEAR, QUESTS };
+  ER.data = { TRAITS, AI_TYPES, enemyNote, applySpawns, RULES, MATERIALS, CARDS, RESEARCH, HEROES, TRAINING, ENEMIES, REGIONS, CHESTS, ALTAR, FACILITIES, GEAR, QUESTS };
   if (typeof module === 'object') module.exports = ER;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

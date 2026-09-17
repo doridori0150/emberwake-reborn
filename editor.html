@@ -32,6 +32,9 @@ main { padding:12px 16px 40px; } section[hidden] { display:none; }
 .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; } .dim { color:var(--dim); } .small { font-size:.84rem; }
 table { border-collapse:collapse; width:100%; font-size:.88rem; font-variant-numeric:tabular-nums; } th,td { padding:4px 6px; border-bottom:1px solid var(--line); text-align:right; } th:first-child,td:first-child { text-align:left; } th { color:var(--dim); font-weight:500; }
 .trait { border:1px solid var(--line); border-radius:6px; padding:6px; margin-bottom:6px; } .trait .t { display:flex; justify-content:space-between; align-items:center; gap:6px; } .trait .d { color:var(--dim); font-size:.82rem; margin-top:3px; }
+.guide { background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--teal); border-radius:8px; padding:8px 12px; margin-bottom:12px; } .guide summary { cursor:pointer; font-weight:600; } .guide ol { margin:8px 0 2px; padding-left:20px; color:var(--ink); line-height:1.6; max-width:90ch; } .guide li { margin-bottom:2px; }
+kbd { font-size:.72em; padding:0 4px; border:1px solid currentColor; border-radius:4px; opacity:.6; margin-left:2px; }
+.chips { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:4px; min-height:24px; align-items:center; } .chip { display:inline-flex; align-items:center; gap:4px; background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:1px 4px 1px 9px; font-size:.86rem; } .chip button { border:0; background:transparent; padding:0 4px; color:var(--dim); }
 #dlg { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:9; padding:16px; } #dlg[hidden] { display:none; } #dlg .box { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; width:min(860px,100%); max-height:90vh; display:flex; flex-direction:column; gap:8px; } #dlg textarea { flex:1; min-height:50vh; font-family:Consolas,monospace; font-size:.8rem; white-space:pre; }
 </style>
 </head>
@@ -43,9 +46,11 @@ table { border-collapse:collapse; width:100%; font-size:.88rem; font-variant-num
   <button data-tab="foes" type="button">몬스터 작업대</button>
   <span class="grow"></span>
   <span id="status">불러오는 중…</span>
+  <button id="btnHelp" type="button">사용법</button>
+  <button id="btnUndo" type="button" title="Ctrl+Z">되돌리기</button>
   <button id="btnText" type="button">텍스트로 보기</button>
   <button id="btnSave" class="primary" type="button">저장 (src/content.js)</button>
-  <a href="index.html" style="color:var(--dim)">게임으로</a>
+  <a href="index.html" target="er-game" style="color:var(--dim)">게임 열기</a>
 </header>
 <main>
   <section id="tab-review" hidden></section>

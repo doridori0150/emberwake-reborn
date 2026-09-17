@@ -18,9 +18,14 @@ function dev(req, res, p) {
     fs.writeFileSync(out, fmt.text(content)); json(200, { ok: true, enemies: Object.keys(content.enemies).length, spawns: content.spawns.length, rooms: content.rooms.length });
   } catch (e) { json(400, { ok: false, reason: String(e.message || e) }); } });
 }
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname); if (p === '/') p = '/index.html';
   if (p.startsWith('/__dev/')) return dev(req, res, p);
   const file = path.join(ROOT, p); if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, buf) => { if (err) { res.writeHead(404); return res.end('not found'); } res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' }); res.end(buf); });
-}).listen(PORT, '127.0.0.1', () => console.log('Emberwake Reborn → http://127.0.0.1:' + PORT + '/'));
+});
+// --open <page>: 서버가 뜨면(또는 이미 떠 있으면) 기본 브라우저로 그 페이지를 연다. 실행용 .bat 이 쓴다.
+const oi = process.argv.indexOf('--open'), page = oi > 0 ? String(process.argv[oi + 1] || '').replace(/[^\w.\-#?=]/g, '') : null;
+const openPage = () => { if (!page) return; const url = 'http://127.0.0.1:' + PORT + '/' + page; require('child_process').exec(process.platform === 'win32' ? 'start "" "' + url + '"' : process.platform === 'darwin' ? 'open "' + url + '"' : 'xdg-open "' + url + '"'); };
+server.on('error', e => { if (e.code === 'EADDRINUSE') { console.log('이미 실행 중입니다 → http://127.0.0.1:' + PORT + '/'); openPage(); setTimeout(() => process.exit(0), 500); } else throw e; });
+server.listen(PORT, '127.0.0.1', () => { console.log('Emberwake Reborn → http://127.0.0.1:' + PORT + '/  (콘텐츠 도구: /editor.html)  이 창을 닫으면 서버가 꺼집니다.'); openPage(); });
