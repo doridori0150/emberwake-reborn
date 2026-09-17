@@ -50,7 +50,7 @@
   function fight(run, style, maxTurns = 40) { let n = 0; while (run.status === 'active' && run.mode === 'combat' && n++ < maxTurns) { turn(run, style); if (run.status === 'active' && run.mode === 'combat') RUN.act(run, { t: 'end' }); } return n; }
 
   function arena(hero, foes, seed, region = 'verdant', extra = {}) {
-    const run = RUN.create(Object.assign({ regionId: region, heroId: hero, deck: D.HEROES[hero].deck, seed }, extra)), rm = RUN.room(run);
+    const run = RUN.create(Object.assign({ regionId: region, heroId: hero, deck: D.HEROES[hero].deck, seed, noEvents: true }, extra)), rm = RUN.room(run);
     rm.objects = []; run.hero.x = 2; run.hero.y = 4; rm.tiles = rm.tiles.map(r => r.replace(/D/g, '#'));
     rm.enemies = foes.map(([k, x, y], i) => Object.assign(M.makeEnemy(k, x, y, { n: 900 + i }), { state: 'alert' }));
     run.mode = 'combat'; run.turn = 1; Object.assign(run.hero, { mp: RUN.moveMax(run), main: 1, bonus: 1 }); return run;

@@ -10,6 +10,12 @@ function dev(req, res, p) {
   const host = String(req.headers.host || ''), origin = req.headers.origin;
   if (!/^(127\.0\.0\.1|localhost):\d+$/.test(host) || (origin && origin !== 'http://' + host)) return json(403, { ok: false, reason: '로컬 요청만 받는다' });
   if (p === '/__dev/ping') return json(200, { ok: true });
+  if (p === '/__dev/portrait' && req.method === 'POST') { // 본문: { id, dataUrl }. 그림 파일만, 1.5MB 까지, assets/portraits/<id>.<확장자> 로만 쓴다.
+    let body = ''; req.on('data', c => { body += c; if (body.length > 2.2e6) req.destroy(); });
+    return req.on('end', () => { try { const { id, dataUrl } = JSON.parse(body), m = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl || ''); if (!/^[a-z][a-z0-9_]{0,39}$/.test(id || '') || !m) return json(400, { ok: false, reason: 'id 는 영문 소문자·숫자·_, 그림은 png/jpg/webp 만' });
+      const buf = Buffer.from(m[2], 'base64'), ext = m[1] === 'jpeg' ? 'jpg' : m[1], sig = buf.subarray(0, 12), okSig = ext === 'png' ? sig.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])) : ext === 'jpg' ? sig[0] === 0xff && sig[1] === 0xd8 : sig.subarray(0, 4).toString() === 'RIFF' && sig.subarray(8, 12).toString() === 'WEBP';
+      if (!okSig || buf.length > 1.5e6) return json(400, { ok: false, reason: '그림 파일이 아니거나 1.5MB 를 넘는다' }); const dir = path.join(ROOT, 'assets', 'portraits'); fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, id + '.' + ext), buf); json(200, { ok: true, src: 'assets/portraits/' + id + '.' + ext });
+    } catch (e) { json(400, { ok: false, reason: String(e.message || e) }); } }); }
   if (p !== '/__dev/content' || req.method !== 'POST') return json(404, { ok: false, reason: '없는 API' });
   let body = '', big = false; req.on('data', c => { body += c; if (body.length > 2e6) { big = true; req.destroy(); } });
   req.on('end', () => { if (big) return; try {

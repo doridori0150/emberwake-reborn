@@ -59,7 +59,7 @@ if (require.main === module) {
   const [region = 'verdant', hero = 'ara', count = '200', goal = 'boss'] = process.argv.slice(2);
   const res = { extracted: 0, defeat: 0, boss: 0, time: 0, hp: 0, rounds: 0, slots: 0, gold: 0, mats: {} };
   for (let i = 0; i < +count; i++) {
-    const run = RUN.create({ regionId: region, heroId: hero, deck: D.HEROES[hero].deck, seed: 'sim' + i }); bot(run, goal, false);
+    const run = RUN.create({ regionId: region, heroId: hero, deck: D.HEROES[hero].deck, seed: 'sim' + i, noEvents: true }); bot(run, goal, false);
     res[run.status]++; if (run.flags.objective && run.status === 'extracted') res.boss++; res.time += run.time / run.limit; res.hp += run.hero.hp / run.hero.maxHp; res.rounds += run.stats.rounds; res.slots += run.bag.length; res.gold += run.gold;
     if (run.status === 'extracted') for (const s of run.bag) res.mats[s.mat] = (res.mats[s.mat] || 0) + s.qty;
   }

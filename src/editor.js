@@ -6,7 +6,8 @@
   const ER = g.ER, D = ER.data, M = ER.map, { ENEMIES, REGIONS, MATERIALS, CHESTS, TRAITS, AI_TYPES, RULES } = D, W = M.W, H = M.H;
   const $ = s => document.querySelector(s), clone = o => JSON.parse(JSON.stringify(o)), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
-  const C = ER.CONTENT = Object.assign({ enemies: {}, spawns: [], rooms: [] }, ER.CONTENT); // 작업본(생성기도 같은 객체를 본다)
+  const C = ER.CONTENT = Object.assign({ enemies: {}, spawns: [], gear: {}, craftOptions: {}, portraits: {}, tuning: {}, events: [], rooms: [] }, ER.CONTENT);
+  const TABS = {}, HOOKS = { restore: [], problems: [] }; // 다른 파일(editor2.js)이 탭과 되돌리기·검사 훅을 더한다 // 작업본(생성기도 같은 객체를 본다)
   let saved = JSON.stringify(C), canSave = false, tab = 'review';
 
   // ───────── 공통: 상태 표시·저장
@@ -16,10 +17,10 @@
   function snap() { const j = JSON.stringify(C); if (j !== HIST[HIST.length - 1]) { HIST.push(j); if (HIST.length > 80) HIST.shift(); REDO.length = 0; } }
   function touch() { D.applySpawns(C.spawns); if (!ED.painting) snap(); status(); }
   function restore(j) { // 작업본을 통째로 바꾸고 적 표를 다시 맞춘다
-    const o = JSON.parse(j); C.enemies = o.enemies; C.spawns = o.spawns; C.rooms = o.rooms;
+    const o = JSON.parse(j); for (const k of Object.keys(C)) delete C[k]; Object.assign(C, o);
     for (const k of Object.keys(ENEMIES)) if (!C.enemies[k] && !ORIG[k]) delete ENEMIES[k];
     for (const k of new Set(Object.keys(ORIG).concat(Object.keys(C.enemies)))) { const d = clone(C.enemies[k] || ORIG[k]); delete d.__base; ENEMIES[k] = d; }
-    D.applySpawns(C.spawns); ED.sel = null; FO.result = null; status(); show(tab);
+    D.applySpawns(C.spawns); for (const f of HOOKS.restore) f(); ED.sel = null; FO.result = null; status(); show(tab);
   }
   function undo() { if (HIST.length < 2) return status('되돌릴 것이 없습니다'); REDO.push(HIST.pop()); restore(HIST[HIST.length - 1]); status('되돌렸습니다 (다시 실행: Ctrl+Y)', 'dirty'); }
   function redo() { if (!REDO.length) return; const j = REDO.pop(); HIST.push(j); restore(j); }
@@ -42,7 +43,7 @@
     for (const [k, d] of Object.entries(C.enemies)) { for (const f of ['name', 'asset', 'ai']) if (!d[f]) out.push(k + ': ' + f + ' 없음'); if (!AI_TYPES[d.ai]) out.push(k + ': 모르는 행동 유형 ' + d.ai); for (const [id, p] of Object.entries(d.traits || {})) { if (!TRAITS[id]) out.push(k + ': 모르는 특성 ' + id); for (const f of ['into', 'kind']) if (p[f] && !ENEMIES[p[f]]) out.push(k + ': 특성이 가리키는 적 ' + p[f] + ' 없음'); } }
     C.spawns.forEach((s, i) => { if (!REGIONS[s.region]?.rooms_def[s.room]) out.push('등장 조합 ' + (i + 1) + ': 없는 지역/방 ' + s.region + '/' + s.room); for (const k of s.group) if (!ENEMIES[k]) out.push('등장 조합 ' + (i + 1) + ': 없는 적 ' + k); });
     for (const r of C.rooms) { const errs = M.lintRoom(r).filter(i => i.level === 'error'); if (errs.length && !r.disabled) out.push('방 ' + r.id + ': ' + errs[0].msg + ' (게임에서는 이 방을 건너뛴다)'); }
-    const ids = C.rooms.map(r => r.id); ids.forEach((id, i) => { if (ids.indexOf(id) !== i) out.push('방 id 중복: ' + id); });
+    const ids = C.rooms.map(r => r.id); ids.forEach((id, i) => { if (ids.indexOf(id) !== i) out.push('방 id 중복: ' + id); }); for (const f of HOOKS.problems) out.push(...f());
     return out;
   }
   function showText(title, note) { $('#dlgTitle').textContent = title; $('#dlgNote').textContent = note; $('#dlgText').value = ER.contentfmt.text(C); $('#dlg').hidden = false; }
@@ -260,7 +261,9 @@
   }
 
   // ───────── 시작
-  function show(t) { tab = t; for (const id of ['review', 'rooms', 'foes']) { $('#tab-' + id).hidden = id !== t; document.querySelector('[data-tab="' + id + '"]').classList.toggle('on', id === t); } try { history.replaceState(null, '', '#' + t); } catch (e) { /* file:// */ } ({ review: renderReview, rooms: renderRooms, foes: renderFoes })[t](); }
+  Object.assign(TABS, { review: renderReview, rooms: renderRooms, foes: renderFoes });
+  function show(t) { if (!TABS[t]) t = 'review'; tab = t; for (const id of Object.keys(TABS)) { $('#tab-' + id).hidden = id !== t; document.querySelector('[data-tab="' + id + '"]').classList.toggle('on', id === t); } try { history.replaceState(null, '', '#' + t); } catch (e) { /* file:// */ } TABS[t](); }
+  ER.editor = { C, TABS, HOOKS, GUIDES, $, el, esc, clone, optList, chipPicker, guideHtml, bindGuide, touch, status, show, canSave: () => canSave };
   async function boot() {
     for (const [k, d] of Object.entries(ENEMIES)) ORIG[k] = clone(d);
     // data.js 의 기본 적. 고치면 content 에 덮어쓰기로 들어가고, 지울 수는 없다.
@@ -268,7 +271,7 @@
     document.querySelectorAll('[data-tab]').forEach(b => { b.onclick = () => show(b.dataset.tab); });
     $('#btnSave').onclick = save; $('#btnText').onclick = () => showText('src/content.js 본문', '지금 작업본을 파일 본문으로 만든 것입니다.'); $('#dlgClose').onclick = () => { $('#dlg').hidden = true; }; $('#dlgCopy').onclick = async () => { $('#dlgText').select(); try { await navigator.clipboard.writeText($('#dlgText').value); status('복사했습니다'); } catch (e) { document.execCommand('copy'); } };
     g.addEventListener('beforeunload', e => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } });
-    g.addEventListener('hashchange', () => { const t = location.hash.slice(1); if (['review', 'rooms', 'foes'].includes(t) && t !== tab) show(t); });
+    g.addEventListener('hashchange', () => { const t = location.hash.slice(1); if (TABS[t] && t !== tab) show(t); });
     g.addEventListener('keydown', e => { const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || ''), key = e.key.toLowerCase();
       if ((e.ctrlKey || e.metaKey) && key === 's') { e.preventDefault(); return save(); }
       if (typing) return;
@@ -278,7 +281,7 @@
       const t = TOOLS.find(q => q[2] === key); if (t) { ED.tool = t[0]; renderRooms(); } });
     $('#btnUndo').onclick = undo; $('#btnHelp').onclick = () => { const d = document.querySelector('#tab-' + tab + ' details.guide'); if (d) { d.open = !d.open; d.scrollIntoView({ block: 'nearest' }); } };
     try { const r = await fetch('/__dev/ping'); canSave = r.ok && (await r.json()).ok === true; } catch (e) { canSave = false; }
-    await ER.gfx.load(); status(); show(['review', 'rooms', 'foes'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'review');
+    await ER.gfx.load(); status(); show(location.hash.slice(1));
     g.__ER_EDITOR = { C, ED, FO, RV, show, problems };
   }
   boot().catch(e => { document.body.innerHTML = '<pre style="color:#f88;padding:20px">도구 시작 실패: ' + (e?.stack || e) + '</pre>'; });

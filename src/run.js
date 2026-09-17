@@ -8,6 +8,7 @@
   'use strict';
   const ER = g.ER = g.ER || {};
   if (typeof require === 'function' && !ER.map) require('./mapgen.js');
+  if (typeof require === 'function' && !ER.events) require('./events.js');
   const D = ER.data, { RULES, MATERIALS, CARDS, HEROES, ENEMIES, REGIONS, CHESTS, GEAR, ALTAR } = D, R = ER.rng, M = ER.map;
   const W = M.W, H = M.H, N4 = [[0, -1], [1, 0], [0, 1], [-1, 0]];
   const key = (x, y) => x + ',' + y, dist = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
@@ -18,7 +19,7 @@
     const region = REGIONS[o.regionId], heroDef = HEROES[o.heroId]; if (!region || !heroDef) throw new Error('원정 설정 오류');
     const mods = Object.assign({ bagSlots: 0, bandages: 0, hpBonus: 0, limitBonus: 0, mapIntel: false, knowSanctum: false, saveFirstSlot: false }, o.mods);
     const gear = (o.gear || []).filter(id => GEAR[id]), perks = o.perks || [];
-    const sum = f => gear.reduce((n, id) => n + (GEAR[id][f] || 0), 0);
+    const gearOpts = o.gearOpts || {}, sum = f => gear.reduce((n, id) => n + (GEAR[id][f] || 0) + (gearOpts[id] || []).reduce((q, k) => q + (D.CRAFT_OPTIONS[k]?.effects?.[f] || 0), 0), 0);
     const rs = R.seedStreams(String(o.seed));
     const map = M.generate(o.regionId, rs, { knowSanctum: mods.knowSanctum, force: o.testRoom || null });
     const maxHp = heroDef.hp + sum('hp') + mods.hpBonus + (perks.includes('ara_iron') ? 6 : 0);
@@ -26,7 +27,7 @@
       v: 1, id: 'run-' + o.seed, seed: String(o.seed), regionId: o.regionId, heroId: o.heroId, rng: rs, status: 'active', mode: 'explore', turn: 0,
       rooms: map.rooms, nextId: map.nextId, devicesNeed: map.devices, devicesOn: 0, roomId: 0,
       hero: { x: 6, y: 5, facing: 'down', hp: maxHp, maxHp, block: 0, mp: 0, main: 1, bonus: 1, moved: 0, focus: 0, focusBonus: 0, retaliate: 0, thorns: 0, harvest: 0, rollMode: null, checkBonus: 0, statusUsed: false, smoke: false, burn: 0, gauge: 0 },
-      noCrit: !!o.noCrit,
+      noCrit: !!o.noCrit, flatAttack: !!o.flatAttack, noEvents: !!o.noEvents, gearOpts, evFlags: Object.assign({}, o.flags), evSeen: (o.seen || []).slice(), pendingEvent: null, eventQueue: [],
       gear, perks, upgrades: o.upgrades || {}, mods, items: { bandage: mods.bandages, flare: sum('flare') },
       deck: { draw: [], hand: [], discard: [], exhaust: [] }, bag: [], gold: 0,
       time: 0, limit: region.limit + mods.limitBonus, phase: 0, pursuers: [], stalker: { state: 'none', at: 0 },
@@ -48,7 +49,12 @@
   // ───────── 조회 도우미
   const room = run => run.rooms[run.roomId];
   const heroDef = run => HEROES[run.heroId];
-  const gearSum = (run, f) => run.gear.reduce((n, id) => n + (GEAR[id][f] || 0), 0);
+  const gearSum = (run, f) => run.gear.reduce((n, id) => n + (GEAR[id]?.[f] || 0) + ((run.gearOpts || {})[id] || []).reduce((q, k) => q + (D.CRAFT_OPTIONS[k]?.effects?.[f] || 0), 0), 0);
+  const stackOf = (run, mat) => MATERIALS[mat].stack + gearSum(run, 'stackAll') + gearSum(run, 'stack:' + mat); // 가방·주머니가 묶음 크기를 키운다
+  // 무기: 기본 공격의 피해 주사위. 맨손이면 대원의 기본 주사위. flatAttack(검사용)은 예전 고정 피해를 쓴다.
+  function weapon(run) { const base = HEROES[run.heroId].attack, id = run.gear.find(x => GEAR[x]?.weapon && (!GEAR[x].heroes?.length || GEAR[x].heroes.includes(run.heroId))), w = id ? GEAR[id].weapon : null; return { id: id || null, dice: run.flatAttack ? String(base.dmg) : (w?.dice || base.dice || String(base.dmg)), range: w?.range || base.range, name: w?.name || base.name, bonus: gearSum(run, 'bonus') }; }
+  const rollMode = run => (run.hero.rollMode === 'steady' ? 'steady' : run.hero.rollMode === 'advantage' ? 'advantage' : 'normal');
+  function critExtra(dice) { const p = ER.dice.parse(dice); return p.count ? p.count + 'd' + p.sides + (p.mul > 1 ? '*' + p.mul : '') : null; } // D&D: 치명타는 주사위만 한 번 더
   const hasPerk = (run, id) => run.perks.includes(id);
   const phaseDef = run => RULES.phases[run.phase];
   const edef = e => ENEMIES[e.kind];
@@ -133,17 +139,17 @@
 
   // ───────── 가방
   function addBag(run, mat, qty) {
-    const stack = MATERIALS[mat].stack;
+    const stack = stackOf(run, mat);
     for (const s of run.bag) if (s.mat === mat && s.qty < stack && qty > 0) { const n = Math.min(stack - s.qty, qty); s.qty += n; qty -= n; }
     while (qty > 0 && run.bag.length < bagSlots(run)) { const n = Math.min(stack, qty); run.bag.push({ mat, qty: n }); qty -= n; }
     return qty; // 남은 수량(가방에 못 넣은 것)
   }
-  function bagRoom(run, mat) { const stack = MATERIALS[mat].stack; return run.bag.filter(s => s.mat === mat).reduce((n, s) => n + stack - s.qty, 0) + (bagSlots(run) - run.bag.length) * stack; }
+  function bagRoom(run, mat) { const stack = stackOf(run, mat); return run.bag.filter(s => s.mat === mat).reduce((n, s) => n + stack - s.qty, 0) + (bagSlots(run) - run.bag.length) * stack; }
   function dropPile(run, x, y, mat, qty) { const rm = room(run); let p = rm.objects.find(o => o.kind === 'pile' && o.x === x && o.y === y); if (!p) { p = { id: 'o' + (run.nextId++), kind: 'pile', x, y, items: [] }; rm.objects.push(p); } const it = p.items.find(i => i.mat === mat); if (it) it.qty += qty; else p.items.push({ mat, qty }); }
 
   // ───────── 투지와 치명타
   function gainGauge(run, n, why) { const h = run.hero, before = h.gauge || 0; if (run.mode !== 'combat') return; h.gauge = Math.min(RULES.gauge.max, before + n); if (h.gauge > before) ev(run, { t: 'gauge', n: h.gauge - before, why }); }
-  function critChance(run, e) { if (run.noCrit) return 0; let c = RULES.crit.base; if (e.st.exposed) c += RULES.crit.exposed; if (run.heroId === 'noa' && run.hero.moved >= 3) c += RULES.crit.noaMoved; return c; }
+  function critChance(run, e) { if (run.noCrit) return 0; let c = RULES.crit.base + gearSum(run, 'crit'); if (e.st.exposed) c += RULES.crit.exposed; if (run.heroId === 'noa' && run.hero.moved >= 3) c += RULES.crit.noaMoved; return c; }
   const critDamage = n => n + Math.ceil(n / 2);
   function rollCrit(run, e) { const c = critChance(run, e); if (!c) return false; const hit = R.next(run.rng, 'dice') * 100 < c; if (hit) { ev(run, { t: 'crit', x: e.x, y: e.y }); say(run, '치명타!'); gainGauge(run, 1, 'crit'); } return hit; }
 
@@ -185,7 +191,7 @@
     for (const [mat, p] of d.loot) if (R.next(run.rng, 'loot') < p) { const left = addBag(run, mat, 1); if (left) { dropPile(run, e.x, e.y, mat, left); say(run, '가방이 가득 차 ' + MATERIALS[mat].name + '을(를) 바닥에 두었다.'); } else ev(run, { t: 'loot', x: e.x, y: e.y, text: '+1 ' + MATERIALS[mat].name }); }
     say(run, d.name + ' 처치.');
     if (d.stalker) { run.stalker = { state: 'dead', at: run.time + 15 }; say(run, '추적자가 흩어졌다. 하지만 붉은달은 다시 그것을 빚어낼 것이다.'); }
-    else if (d.boss) { run.flags.bossDead = true; rm.objects.push({ id: 'o' + (run.nextId++), kind: 'objective', x: e.x, y: e.y }); say(run, REGIONS[run.regionId].objective.name + '이(가) 드러났다. 회수하고 귀환문으로 돌아가자.'); }
+    else if (d.boss) { run.flags.bossDead = true; fireEvent(run, 'bossKill', {}); rm.objects.push({ id: 'o' + (run.nextId++), kind: 'objective', x: e.x, y: e.y }); say(run, REGIONS[run.regionId].objective.name + '이(가) 드러났다. 회수하고 귀환문으로 돌아가자.'); }
     rm.enemies = rm.enemies.filter(x => x !== e);
     if (e.stolen) { run.gold += e.stolen; ev(run, { t: 'loot', x: e.x, y: e.y, text: '되찾음 +' + e.stolen + ' 금화' }); say(run, '훔쳐 간 금화 ' + e.stolen + '을(를) 되찾았다.'); }
     const sp = trait(e, 'split'); if (sp) { let n = 0; for (let i = 0; i < sp.n; i++) if (spawnNear(run, sp.into, e.x, e.y)) n++; if (n) say(run, d.name + '이(가) ' + ENEMIES[sp.into].name + ' ' + n + '마리로 갈라졌다.'); }
@@ -278,6 +284,7 @@
 
   // ───────── 방 이동과 추격
   function enterRoomEffects(run, rm, first) {
+    if (first) fireEvent(run, rm.id === 0 ? 'runStart' : 'roomEnter', { roomType: rm.type, room: rm.handmade || '' });
     if (first && run.phase >= 1 && !rm.stirred && rm.type !== 'entry' && rm.type !== 'shelter' && rm.type !== 'sanctum') { // 술렁임: 처음 들어가는 방에 적 +1
       rm.stirred = true; const pool = REGIONS[run.regionId].rooms_def[rm.type].enemies.flat().filter(k => !ENEMIES[k].elite && !ENEMIES[k].boss); const p = pool.length && randomFree(run, rm);
       if (p) { const e = M.makeEnemy(pool[R.int(run.rng, 'map', pool.length)], p[0], p[1], { n: run.nextId++ }); run.nextId++; rm.enemies.push(e); }
@@ -493,7 +500,7 @@
     if (run.status !== 'active') return { ok: false, reason: '원정이 끝났다' };
     const h = run.hero, rm = room(run), ambush = run.mode === 'explore';
     if (a.t === 'move') { const p = pathTo(run, a.x, a.y); if (!p) return { ok: false, reason: '갈 수 없는 칸' }; if (run.mode === 'combat' && p.cost > h.mp) return { ok: false, reason: '이동력 부족(' + p.cost + '/' + h.mp + ')', path: p.path, cost: p.cost }; const hz = tile(rm, a.x, a.y) === 'h' && hazard(run).dmg; return { ok: true, path: p.path, cost: run.mode === 'combat' ? p.cost : 0, text: (run.mode === 'combat' ? '이동 ' + p.cost : '이동') + (hz ? ' · ' + hazard(run).name + ' 피해 ' + hazard(run).dmg : '') }; }
-    if (a.t === 'attack') { const atk = heroDef(run).attack, e = alive(rm).find(x => x.id === a.id), why = slotReason(run, 'main') || checkTarget(run, { range: atk.range, target: 'enemy' }, a); if (why) return { ok: false, reason: why }; const n = calcDamage(run, e, atk.dmg, { direct: true, ambush: ambush && e.state === 'idle' }), cc = critChance(run, e); return { ok: true, cost: '주 행동', crit: cc, dmg: [killNote(run, e, { id: e.id, min: n, max: n, crit: cc ? critDamage(n) : null, kill: n >= e.hp })], text: atk.name + ' · 피해 ' + n }; }
+    if (a.t === 'attack') { const atk = weapon(run), e = alive(rm).find(x => x.id === a.id), why = slotReason(run, 'main') || checkTarget(run, { range: atk.range, target: 'enemy' }, a); if (why) return { ok: false, reason: why }; const opt = { direct: true, ambush: ambush && e.state === 'idle' }, b = ER.dice.bounds(atk.dice, { mode: rollMode(run) === 'steady' ? 'steady' : 'normal', bonus: atk.bonus }), lo = calcDamage(run, e, Math.max(1, b.min), opt), hi = calcDamage(run, e, Math.max(1, b.max), opt), cc = critChance(run, e), ex = critExtra(atk.dice), cmax = ex ? calcDamage(run, e, Math.max(1, b.max + ER.dice.bounds(ex).max), opt) : critDamage(hi); return { ok: true, cost: '주 행동', crit: cc, dice: b.fixed ? null : atk.dice + (atk.bonus ? '+' + atk.bonus : ''), dmg: [killNote(run, e, { id: e.id, min: lo, max: hi, crit: cc ? cmax : null, kill: lo >= e.hp })], text: atk.name + (b.fixed ? '' : ' ' + atk.dice + (atk.bonus ? '+' + atk.bonus : '')) + ' · 피해 ' + (lo === hi ? lo : lo + '~' + hi) }; }
     if (a.t === 'special') return previewSpecial(run, a);
     if (a.t === 'card') {
       const c = card(run, h && run.deck.hand[a.i]); if (!c) return { ok: false, reason: '카드 없음' };
@@ -503,7 +510,7 @@
         const list = targetsFor(run, c, a.target); const mode = h.rollMode;
         list.forEach((e, i) => {
           const amb = ambush && e.state === 'idle', opt = { direct: true, pierce: c.pierce, ambush: amb, noFocus: i > 0 };
-          if (c.roll) { const b = ER.dice.bounds(c.roll, { mode: mode === 'steady' ? 'steady' : 'normal' }); out.dmg.push({ id: e.id, min: calcDamage(run, e, b.min, opt), max: calcDamage(run, e, b.max, opt) }); }
+          if (c.roll) { const wf = c.roll === 'weapon' ? weapon(run) : null, b = ER.dice.bounds(wf ? wf.dice : c.roll, { mode: mode === 'steady' ? 'steady' : 'normal', bonus: wf ? wf.bonus + (c.dmg || 0) : 0 }); out.dmg.push({ id: e.id, min: calcDamage(run, e, b.min, opt), max: calcDamage(run, e, b.max, opt) }); }
           else { const base = cardBase(run, c, e), n = base ? calcDamage(run, e, base, opt) : 0; out.dmg.push({ id: e.id, min: n, max: n }); }
         });
         if (list[0]) { out.crit = critChance(run, list[0]); if (out.crit) out.dmg.forEach(d => { if (d.max > 0) d.crit = critDamage(d.max); }); }
@@ -543,8 +550,10 @@
   function takePile(run, pile) { for (const it of pile.items) { const left = addBag(run, it.mat, it.qty); if (left < it.qty) ev(run, { t: 'loot', x: pile.x, y: pile.y, text: '+' + (it.qty - left) + ' ' + MATERIALS[it.mat].name }); it.qty = left; } pile.items = pile.items.filter(i => i.qty > 0); if (!pile.items.length) room(run).objects = room(run).objects.filter(o => o !== pile); }
 
   function doAttack(run, a) {
-    const p = preview(run, a); if (!p.ok) return p; const e = alive(room(run)).find(x => x.id === a.id), atk = heroDef(run).attack, h = run.hero;
-    const amb = engage(run, e); let n = calcDamage(run, e, atk.dmg, { direct: true, ambush: amb }); if (rollCrit(run, e)) n = critDamage(n);
+    const p = preview(run, a); if (!p.ok) return p; const e = alive(room(run)).find(x => x.id === a.id), atk = weapon(run), h = run.hero;
+    const amb = engage(run, e), mode = rollMode(run), r1 = ER.dice.roll(atk.dice, run.rng, { mode, bonus: atk.bonus }); h.rollMode = null; let base = r1.total; const crit = rollCrit(run, e), ex = critExtra(atk.dice);
+    if (crit) base = ex ? base + ER.dice.roll(ex, run.rng, { mode: mode === 'steady' ? 'steady' : 'normal' }).total : critDamage(base);
+    const n = calcDamage(run, e, Math.max(1, base), { direct: true, ambush: amb }); if (!r1.fixed) say(run, atk.name + ' ' + atk.dice + (atk.bonus ? '+' + atk.bonus : '') + ' → ' + r1.total + (crit ? ' · 치명타로 주사위 한 번 더 = ' + base : ''));
     h.main -= 1; face(run, e.x, e.y); ev(run, { t: 'attack', who: 'hero', tx: e.x, ty: e.y, anim: 'attack', ranged: atk.range > 1 }); if (atk.range > 1) ev(run, { t: 'proj', fx: h.x, fy: h.y, tx: e.x, ty: e.y, kind: 'bolt' });
     h.focus = 0; hurtEnemy(run, e, n); if (atk.range <= 1 && e.hp > 0 && e.intent?.type === 'aim') cancelIntent(run, e); if (run.heroId === 'noa') h.mp += 1;
     checkCombatEnd(run); return { ok: true };
@@ -561,7 +570,7 @@
     ev(run, { t: 'attack', who: 'hero', tx: list[0]?.x ?? h.x, ty: list[0]?.y ?? h.y, anim: c.type === 'attack' && c.range <= 1 && !c.special ? 'attack' : 'skill', card: c.id });
     if (c.type === 'attack') {
       let rolled = null;
-      if (c.roll) { const mode = h.rollMode || 'normal'; rolled = ER.dice.roll(c.roll, run.rng, { mode }); h.rollMode = null; run.stats.rolls.push({ what: c.name, formula: c.roll, total: rolled.total, cands: rolled.candidates, mode }); ev(run, { t: 'roll', label: c.name, formula: c.roll, total: rolled.total, cands: rolled.candidates, mode }); say(run, c.name + ' 굴림 ' + c.roll + ' → ' + rolled.total + (rolled.candidates.length > 1 ? ' (' + rolled.candidates.join(' / ') + ' 중 높은 값)' : mode === 'steady' ? ' (고정)' : '')); }
+      if (c.roll) { const mode = h.rollMode || 'normal', wf = c.roll === 'weapon' ? weapon(run) : null; rolled = ER.dice.roll(wf ? wf.dice : c.roll, run.rng, { mode, bonus: wf ? wf.bonus + (c.dmg || 0) : 0 }); if (rolled.fixed && wf) { h.rollMode = null; } else { h.rollMode = null; run.stats.rolls.push({ what: c.name, formula: c.roll, total: rolled.total, cands: rolled.candidates, mode }); ev(run, { t: 'roll', label: c.name, formula: c.roll, total: rolled.total, cands: rolled.candidates, mode }); say(run, c.name + ' 굴림 ' + c.roll + ' → ' + rolled.total + (rolled.candidates.length > 1 ? ' (' + rolled.candidates.join(' / ') + ' 중 높은 값)' : mode === 'steady' ? ' (고정)' : '')); } }
       const crit = list[0] && (rolled ? rolled.total : cardBase(run, c, list[0])) > 0 ? rollCrit(run, list[0]) : false;
       list.forEach((e, i) => {
         if (e.hp <= 0) return; const opt = { direct: true, pierce: c.pierce, ambush: amb, noFocus: i > 0 };
@@ -674,9 +683,35 @@
   }
   function takeChest(run, o) { for (const it of o.contents) { const left = addBag(run, it.mat, it.qty); if (left < it.qty) ev(run, { t: 'loot', x: o.x, y: o.y, text: '+' + (it.qty - left) + ' ' + MATERIALS[it.mat].name }); it.qty = left; } o.contents = o.contents.filter(i => i.qty > 0); if (o.contents.length) say(run, '가방이 가득 차 일부는 상자에 남겨 두었다: ' + o.contents.map(i => MATERIALS[i.mat].name + ' ' + i.qty).join(', ')); }
 
+  // ───────── 이벤트(대화): 규칙 쪽에서 띄우고 효과를 적용한다. 화면은 run.pendingEvent 를 보고 대화창을 연다.
+  const evHave = run => ({ gold: run.gold, mat: m => run.bag.filter(s => s.mat === m).reduce((n, s) => n + s.qty, 0), flags: run.evFlags || {}, hero: run.heroId });
+  function fireEvent(run, type, extra) {
+    if (run.test || run.noEvents || !D.EVENTS.length) return; run.evSeen = run.evSeen || []; run.evFlags = run.evFlags || {}; run.eventQueue = run.eventQueue || [];
+    const e = ER.events.pick(type, Object.assign({ region: run.regionId, hero: run.heroId }, extra), run.evFlags, run.evSeen.concat(run.eventQueue, run.pendingEvent ? [run.pendingEvent.id] : []), () => R.next(run.rng, 'ai')); if (!e) return;
+    if (run.pendingEvent) run.eventQueue.push(e.id); else openEvent(run, e.id);
+  }
+  function openEvent(run, id) { run.pendingEvent = { id }; if (!run.evSeen.includes(id)) run.evSeen.push(id); ev(run, { t: 'event', id }); }
+  function takeMat(run, mat, n) { for (let i = run.bag.length - 1; i >= 0 && n > 0; i--) if (run.bag[i].mat === mat) { const k = Math.min(n, run.bag[i].qty); run.bag[i].qty -= k; n -= k; if (!run.bag[i].qty) run.bag.splice(i, 1); } }
+  function doEvent(run, a) {
+    const pe = run.pendingEvent, e = pe && ER.events.get(pe.id); if (!pe) return { ok: false, reason: '진행 중인 이벤트가 없다' }; const h = run.hero; let next = null;
+    if (e && (e.choices || []).length) { const c = e.choices[a.choice]; if (!c) return { ok: false, reason: '선택지를 고르세요' }; if (!ER.events.requireOk(c.require, evHave(run))) return { ok: false, reason: '조건이 모자란다' };
+      if (c.require?.gold) run.gold -= c.require.gold; for (const [m, n] of Object.entries(c.require?.mat || {})) takeMat(run, m, n);
+      for (const fx of c.effects || []) {
+        if (fx.type === 'gold') run.gold = Math.max(0, run.gold + fx.n); else if (fx.type === 'mat') { if (fx.n > 0) { const left = addBag(run, fx.mat, fx.n); if (left) dropPile(run, h.x, h.y, fx.mat, left); } else takeMat(run, fx.mat, -fx.n); }
+        else if (fx.type === 'hp') { const before = h.hp; h.hp = Math.max(1, Math.min(h.maxHp, h.hp + fx.n)); if (h.hp !== before) ev(run, { t: 'dmg', id: 'hero', x: h.x, y: h.y, n: Math.abs(h.hp - before), kind: h.hp > before ? 'heal' : 'hit' }); }
+        else if (fx.type === 'time') advance(run, Math.max(0, fx.n)); else if (fx.type === 'gauge') h.gauge = Math.max(0, Math.min(RULES.gauge.max, (h.gauge || 0) + fx.n)); else if (fx.type === 'bandage') run.items.bandage = Math.max(0, (run.items.bandage || 0) + fx.n);
+        else if (fx.type === 'flag') run.evFlags[fx.flag] = true; else if (fx.type === 'unflag') delete run.evFlags[fx.flag]; else if (fx.type === 'card') run.eventDraft = e.name || '이벤트';
+      }
+      say(run, '[' + (e.name || e.id) + '] ' + c.label + (ER.events.effectText(c.effects) ? ' → ' + ER.events.effectText(c.effects) : '')); next = c.next && ER.events.get(c.next) ? c.next : null; }
+    run.pendingEvent = null; if (next) openEvent(run, next); else if (run.eventQueue?.length) openEvent(run, run.eventQueue.shift());
+    if (!run.pendingEvent && run.eventDraft) { const src = run.eventDraft; run.eventDraft = null; offerDraft(run, src); }
+    return { ok: true };
+  }
   function act(run, a) {
     if (run.status !== 'active') return { ok: false, reason: '원정이 끝났다' };
     const h = run.hero; let r;
+    if (run.pendingEvent && a.t !== 'event') return { ok: false, reason: '대화를 먼저 마치세요' };
+    if (a.t === 'event') return doEvent(run, a);
     if (run.pendingDraft && a.t !== 'draft') return { ok: false, reason: '발견한 카드를 먼저 고르세요' };
     switch (a.t) {
       case 'draft': r = doDraft(run, a); break;
@@ -709,6 +744,6 @@
   function intentText(run, e) { const d = edef(e); if (e.hp <= 0) return ''; if (e.st.stun) return '기절'; if (e.state !== 'alert') return (e.patrol ? '순찰 중 — 사방 ' + detectRange(run, e) + '칸을 살핀다.' : '방심 — 바라보는 쪽 ' + detectRange(run, e) + '칸만 본다. 가끔 뒤를 돌아본다.') + ' 들키기 전에 치면 기습 +' + RULES.ambushBonus; if (e.flee != null) return '금화 ' + e.stolen + '을(를) 들고 달아나는 중 — ' + (e.flee + 1) + '턴 뒤 사라진다'; if (d.ai === 'none') return '움직이지 않는다'; if (e.intent) return e.intent.label + (e.intent.dmg ? ' ' + e.intent.dmg : ''); if (d.ai === 'ranged') return '자리 잡고 조준'; if (d.ai === 'caster') return '문양 또는 치유'; if (d.ai === 'boss') return '곁에 있으면 후려치기 ' + Math.max(1, enemyDmg(run, e) - 2) + ' · 다음 예고: ' + ({ sweep: '휩쓸기', charge: '돌진', summon: '소환', slam: '내려찍기', vent: '열기 방출', runes: '문양', beam: '광선', blink: '점멸' }[d.pattern[e.step % d.pattern.length]]); return '접근 후 공격 ' + enemyDmg(run, e); }
 
   function strip(run) { const c = clone(run); c.events = []; return c; } // 저장용
-  ER.run = { create, act, preview, room, card, los, visible, vision, pathTo, reachableTiles, cardRangeTiles, doorInfo, exitInfo, nearbyObjects, interactions, threatTiles, allThreat, watchTiles, critChance, intentText, bagSlots, bagRoom, moveMax, phaseDef, alive, alertIn, strip, calcDamage, addBag, edef, guardsNear, armorOf, trait };
+  ER.run = { create, act, preview, room, card, los, visible, vision, pathTo, reachableTiles, cardRangeTiles, doorInfo, exitInfo, nearbyObjects, interactions, threatTiles, allThreat, watchTiles, critChance, intentText, bagSlots, bagRoom, moveMax, phaseDef, alive, alertIn, strip, calcDamage, addBag, edef, guardsNear, armorOf, trait, weapon, stackOf, gearSum, evHave };
   if (typeof module === 'object') module.exports = ER;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

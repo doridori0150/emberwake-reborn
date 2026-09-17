@@ -34,6 +34,186 @@
     { "region": "archive", "room": "hall", "group": ["nest", "wraith"] },
     { "region": "archive", "room": "hall2", "group": ["nest", "hexer"] }
   ],
+  "gear": {
+    "longsword": { "name": "길드 장검", "slot": "weapon", "heroes": ["ara"], "tier": 1, "icon": "gear.sword", "cost": { "ore": 3, "wood": 1 }, "weapon": { "dice": "1d8+1", "name": "장검 베기" }, "options": ["keen", "weighted"], "optionSlots": 1 },
+    "warhammer": { "name": "파수병의 전쟁망치", "slot": "weapon", "heroes": ["ara"], "tier": 2, "icon": "gear.sword", "cost": { "ore": 4, "coal": 3 }, "weapon": { "dice": "2d4+2", "name": "망치 내려치기" }, "slam": 1, "options": ["keen", "weighted"], "optionSlots": 2 },
+    "daggers": { "name": "그림자 쌍단검", "slot": "weapon", "heroes": ["noa"], "tier": 1, "icon": "gear.sword", "cost": { "ore": 2, "hide": 2 }, "weapon": { "dice": "2d3+1", "name": "쌍단검 베기" }, "crit": 5, "options": ["keen", "weighted"], "optionSlots": 1 },
+    "hookblade": { "name": "갈고리 칼", "slot": "weapon", "heroes": ["noa"], "tier": 2, "icon": "gear.sword", "cost": { "ore": 3, "coal": 2, "hide": 2 }, "weapon": { "dice": "1d6+2", "name": "갈고리 베기" }, "crit": 10, "options": ["keen", "weighted"], "optionSlots": 2 },
+    "focusrod": { "name": "수지 촉매봉", "slot": "weapon", "heroes": ["lumi"], "tier": 1, "icon": "gear.tonic", "cost": { "wood": 2, "resin": 2 }, "weapon": { "dice": "1d6+1", "name": "촉매탄" }, "options": ["keen", "weighted"], "optionSlots": 1 },
+    "starstaff": { "name": "별빛 지팡이", "slot": "weapon", "heroes": ["lumi"], "tier": 2, "icon": "gear.tonic", "cost": { "wood": 3, "crystal": 2 }, "weapon": { "dice": "2d4", "range": 4, "name": "별빛탄" }, "options": ["keen", "weighted"], "optionSlots": 2 },
+    "framepack": { "name": "뼈대 배낭", "slot": "bag", "tier": 2, "icon": "gear.pack", "cost": { "hide": 3, "wood": 3, "coal": 1 }, "bag": 4, "options": ["pouch_ore", "pouch_herb", "reinforced"], "optionSlots": 2 },
+    "expedition": { "name": "원정대 등짐", "slot": "bag", "tier": 3, "icon": "gear.pack", "cost": { "hide": 4, "crystal": 2, "relic": 1 }, "bag": 6, "stackAll": 1, "options": ["pouch_ore", "pouch_herb", "reinforced"], "optionSlots": 3 }
+  },
+  "craftOptions": {
+    "keen": { "name": "날 세우기", "slots": ["weapon"], "cost": { "ore": 2 }, "effects": { "bonus": 1 } },
+    "weighted": { "name": "무게추", "slots": ["weapon"], "cost": { "coal": 2 }, "effects": { "crit": 10 } },
+    "pouch_ore": { "name": "광석 주머니", "slots": ["bag"], "cost": { "hide": 2 }, "effects": { "stack:ore": 3, "stack:coal": 3, "stack:crystal": 2 } },
+    "pouch_herb": { "name": "약초 주머니", "slots": ["bag"], "cost": { "flax": 3 }, "effects": { "stack:herb": 3, "stack:flax": 3, "stack:wood": 3 } },
+    "reinforced": { "name": "덧댄 바닥", "slots": ["bag"], "cost": { "hide": 2, "ore": 1 }, "effects": { "bag": 1 } }
+  },
+  "portraits": {},
+  "tuning": {},
+  "events": [
+    {
+      "id": "first_descent",
+      "name": "첫 하강",
+      "trigger": {
+        "type": "runStart",
+        "region": "verdant"
+      },
+      "pages": [
+        {
+          "speaker": "아라",
+          "portrait": "actor.ara",
+          "side": "left",
+          "text": "여기가 길드의 옛 입구야. 인장은 가장 깊은 성소에 있을 거다."
+        },
+        {
+          "speaker": "노아",
+          "portrait": "actor.noa",
+          "side": "right",
+          "text": "욕심내지 마. 가방이 차면 귀환문으로 돌아와. 살아서 가져온 것만 길드 것이 되니까."
+        }
+      ],
+      "choices": []
+    },
+    {
+      "id": "wounded_scout",
+      "name": "다친 정찰병",
+      "trigger": {
+        "type": "roomEnter",
+        "region": "verdant",
+        "roomType": "shelter"
+      },
+      "pages": [
+        {
+          "speaker": "정찰병",
+          "portrait": "",
+          "side": "right",
+          "text": "…길드 사람인가? 늑대에게 물렸어. 약초가 있으면 좀 나눠 주겠나."
+        }
+      ],
+      "choices": [
+        {
+          "label": "약초 2개를 건넨다",
+          "require": {
+            "mat": {
+              "herb": 2
+            }
+          },
+          "effects": [
+            {
+              "type": "flag",
+              "flag": "scout_saved"
+            },
+            {
+              "type": "gold",
+              "n": 8
+            }
+          ],
+          "reply": "고맙네. 길드에 돌아가면 꼭 찾아가지."
+        },
+        {
+          "label": "붕대를 감아 준다 (시간 2)",
+          "effects": [
+            {
+              "type": "time",
+              "n": 2
+            },
+            {
+              "type": "flag",
+              "flag": "scout_saved"
+            }
+          ],
+          "reply": "살았어… 이 은혜는 잊지 않겠네."
+        },
+        {
+          "label": "지나친다",
+          "effects": [],
+          "reply": "…그래, 자네도 바쁘겠지."
+        }
+      ]
+    },
+    {
+      "id": "scout_returns",
+      "name": "정찰병의 보답",
+      "trigger": {
+        "type": "returnGuild",
+        "flag": "scout_saved",
+        "outcome": "extracted"
+      },
+      "pages": [
+        {
+          "speaker": "정찰병",
+          "portrait": "",
+          "side": "right",
+          "text": "약속대로 왔네. 회랑에서 주운 것들이야. 길드 재건에 보태 쓰게."
+        }
+      ],
+      "choices": [
+        {
+          "label": "고맙게 받는다",
+          "effects": [
+            {
+              "type": "mat",
+              "mat": "ore",
+              "n": 3
+            },
+            {
+              "type": "mat",
+              "mat": "wood",
+              "n": 3
+            },
+            {
+              "type": "unflag",
+              "flag": "scout_saved"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "workshop_open",
+      "name": "공방의 불",
+      "trigger": {
+        "type": "facility",
+        "facility": "workshop",
+        "level": 1
+      },
+      "pages": [
+        {
+          "speaker": "아라",
+          "portrait": "actor.ara",
+          "side": "left",
+          "text": "화로에 다시 불이 붙었어. 이제 무기와 가방을 만들 수 있다."
+        },
+        {
+          "speaker": "노아",
+          "portrait": "actor.noa",
+          "side": "right",
+          "text": "가방부터 만들자. 빈손으로 돌아오는 건 이제 지긋지긋해."
+        }
+      ],
+      "choices": []
+    },
+    {
+      "id": "warden_falls",
+      "name": "수문장의 최후",
+      "trigger": {
+        "type": "bossKill",
+        "region": "verdant"
+      },
+      "pages": [
+        {
+          "speaker": "아라",
+          "portrait": "actor.ara",
+          "side": "left",
+          "text": "끝났다… 인장을 챙겨. 돌아갈 때까지가 원정이다."
+        }
+      ],
+      "choices": []
+    }
+  ],
   "rooms": [
     { "tiles": [
         "#############",

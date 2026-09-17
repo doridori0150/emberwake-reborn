@@ -14,7 +14,7 @@ const safe = s => s.replace(/<\/script/gi, '<\/script');
 html = html.replace('<link rel="stylesheet" href="styles.css">', '<style>\n' + read('styles.css') + '\n</style>');
 html = html.replace(/<script src="([^"]+)"><\/script>/g, (m, src) => src === 'src/asset-manifest.js'
   ? '<script>(function(g){g.ER=g.ER||{};g.ER.ASSETS=' + safe(JSON.stringify(manifest)) + ';})(globalThis);</script>'
-  : '<script>\n' + safe(read(src)) + '\n</script>');
+  : '<script>\n' + safe(src === 'src/content.js' ? read(src).replace(/"src": "(assets\/portraits\/[a-z0-9_]+\.(png|jpg|webp))"/g, (m, f, ext) => { const buf = fs.readFileSync(path.join(ROOT, f)); bytes += buf.length; return '"src": "data:image/' + (ext === 'jpg' ? 'jpeg' : ext) + ';base64,' + buf.toString('base64') + '"'; }) : read(src)) + '\n</script>');
 html = html.replace('<title>', '<!-- Emberwake Reborn v' + pkg.version + ' portable build ' + new Date().toISOString() + ' -->\n<title>');
 fs.mkdirSync(path.join(ROOT, 'dist'), { recursive: true });
 const out = path.join(ROOT, 'dist', 'EmberwakeReborn-Portable.html'); fs.writeFileSync(out, html);

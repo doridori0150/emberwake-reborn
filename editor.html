@@ -44,6 +44,9 @@ kbd { font-size:.72em; padding:0 4px; border:1px solid currentColor; border-radi
   <button data-tab="review" type="button">방 검수</button>
   <button data-tab="rooms" type="button">방 에디터</button>
   <button data-tab="foes" type="button">몬스터 작업대</button>
+  <button data-tab="craft" type="button">제작·장비</button>
+  <button data-tab="events" type="button">이벤트</button>
+  <button data-tab="tuning" type="button">기본 수치</button>
   <span class="grow"></span>
   <span id="status">불러오는 중…</span>
   <button id="btnHelp" type="button">사용법</button>
@@ -56,18 +59,24 @@ kbd { font-size:.72em; padding:0 4px; border:1px solid currentColor; border-radi
   <section id="tab-review" hidden></section>
   <section id="tab-rooms" hidden></section>
   <section id="tab-foes" hidden></section>
+  <section id="tab-craft" hidden></section>
+  <section id="tab-events" hidden></section>
+  <section id="tab-tuning" hidden></section>
 </main>
 <div id="dlg" hidden><div class="box"><div class="row"><strong id="dlgTitle"></strong><span class="grow" style="flex:1"></span><button id="dlgCopy" type="button">복사</button><button id="dlgClose" type="button">닫기</button></div><div id="dlgNote" class="dim small"></div><textarea id="dlgText" readonly></textarea></div></div>
 <script src="src/asset-manifest.js"></script>
 <script src="src/rng.js"></script>
 <script src="src/content.js"></script>
 <script src="src/data.js"></script>
+<script src="src/events.js"></script>
 <script src="src/mapgen.js"></script>
 <script src="src/run.js"></script>
 <script src="src/bot.js"></script>
 <script src="src/contentfmt.js"></script>
 <script src="src/audio.js"></script>
 <script src="src/render.js"></script>
+<script src="src/dialog.js"></script>
 <script src="src/editor.js"></script>
+<script src="src/editor2.js"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@ const test = require('node:test'), assert = require('node:assert');
 require('../src/guild.js'); require('../src/save.js');
 const ER = globalThis.ER, { RUN = ER.run, G = ER.guild } = {}, D = ER.data, M = ER.map;
 const { bot } = require('../tools/sim.cjs');
-const mk = (hero = 'ara', seed = 't', region = 'verdant', extra = {}) => RUN.create(Object.assign({ regionId: region, heroId: hero, deck: D.HEROES[hero].deck, seed, noCrit: true }, extra));
+const mk = (hero = 'ara', seed = 't', region = 'verdant', extra = {}) => RUN.create(Object.assign({ regionId: region, heroId: hero, deck: D.HEROES[hero].deck, seed, noCrit: true, flatAttack: true, noEvents: true }, extra));
 // fixture: 빈 방 한가운데에 영웅과 지정한 적만 둔다.
 function arena(hero, foes, opts = {}) {
   const run = mk(hero, opts.seed || 'arena', 'verdant', opts.extra); const rm = RUN.room(run);
@@ -209,7 +209,7 @@ test('성장이 다음 원정에 실제로 반영된다: 장비·훈련·카드 
   assert.equal(G.invest(g, { kind: 'train', hero: 'ara' }).ok, false, '특성을 골라야 한다'); assert.ok(G.invest(g, { kind: 'train', hero: 'ara' }, 'ara_guard').ok);
   assert.ok(G.invest(g, { kind: 'upgrade', id: 'strike', branch: 'a' }).ok); assert.equal(G.invest(g, { kind: 'upgrade', id: 'strike', branch: 'b' }).ok, false, '한 카드에 한 갈래만');
   const state = { meta: { created: 'T' }, guild: g, run: null }; assert.ok(G.startRun(state, 'grow').ok); const run = state.run;
-  assert.equal(run.hero.maxHp, 30 + 4); assert.equal(RUN.bagSlots(run), 6 + 1 + 1); assert.equal(run.items.bandage, 1); assert.equal(run.limit, 70 + 8); assert.equal(RUN.card(run, 'strike').dmg, 8);
+  assert.equal(run.hero.maxHp, 30 + 4); assert.equal(RUN.bagSlots(run), 6 + 1 + 2); assert.equal(run.items.bandage, 1); assert.equal(run.limit, 70 + 8); assert.equal(RUN.card(run, 'strike').dmg, 4);
   const fight = arena('ara', [['goblin', 4, 4]], { extra: { perks: g.heroes.ara.perks } }); RUN.act(fight, { t: 'guard' }); assert.equal(fight.hero.block, 3 + 1 + 2, '굳건함: 기본 방어 +2');
 });
 
@@ -271,4 +271,43 @@ test('수제 방·콘텐츠 파일: 검사 통과, 어떤 문 조합에서도 �
   const hm = C.rooms.find(r => r.id === 'looted_store'), run = RUN.create({ regionId: 'verdant', heroId: 'ara', deck: ER.data.HEROES.ara.deck, seed: 'tp', testRoom: hm }); assert.equal(RUN.room(run).handmade, 'looted_store'); assert.ok(run.test); const chest = RUN.room(run).objects.find(o => o.kind === 'chest'); assert.equal(chest.guards.length, 2); assert.ok(RUN.room(run).enemies.some(e => e.patrol));
   const text = fmt.text(C), sandbox = {}; new Function('globalThis', 'module', text.replace("typeof globalThis !== 'undefined' ? globalThis : this", 'globalThis'))(sandbox, undefined); assert.deepEqual(sandbox.ER.CONTENT, JSON.parse(JSON.stringify(C)), '포맷 왕복');
   assert.ok(fmt.check({ enemies: { 'Bad Id': {} }, spawns: [], rooms: [] }));
+});
+
+test('무기 주사위: 미리보기 범위 안에서 굴리고, 치명타는 주사위를 한 번 더. 무기·옵션이 기본 공격과 무기 피해 카드에 반영된다', () => {
+  const D = ER.data, mkw = (o = {}) => { const run = RUN.create(Object.assign({ regionId: 'verdant', heroId: 'ara', deck: D.HEROES.ara.deck, seed: 'wp', noCrit: true, noEvents: true }, o)), rm = RUN.room(run); rm.objects = []; rm.tiles = rm.tiles.map(r => r.replace(/[oh]/g, '.')); run.hero.x = 3; run.hero.y = 4; rm.enemies = [Object.assign(M.makeEnemy('brute', 4, 4, { n: 900 }), { state: 'alert', hp: 200, maxHp: 200, armor: 0 })]; run.mode = 'combat'; run.turn = 1; Object.assign(run.hero, { mp: 4, main: 1, bonus: 1 }); return run; };
+  let run = mkw(); assert.equal(RUN.weapon(run).dice, '1d6+1'); let p = RUN.preview(run, { t: 'attack', id: 'e900' }); assert.deepEqual([p.dmg[0].min, p.dmg[0].max], [2, 7]); assert.equal(p.dice, '1d6+1');
+  const seen = new Set(); for (let i = 0; i < 60; i++) { const r = mkw({ seed: 'wp' + i }), e = RUN.room(r).enemies[0], snap = JSON.stringify(r.rng); assert.equal(JSON.stringify(r.rng), snap, '미리보기는 난수를 쓰지 않는다'); RUN.act(r, { t: 'attack', id: e.id }); const n = 200 - e.hp; assert.ok(n >= 2 && n <= 7, '범위 밖 ' + n); seen.add(n); } assert.ok(seen.size >= 5, '여러 눈이 나온다');
+  run = mkw({ gear: ['longsword'], gearOpts: { longsword: ['keen'] } }); assert.equal(RUN.weapon(run).dice, '1d8+1'); p = RUN.preview(run, { t: 'attack', id: 'e900' }); assert.deepEqual([p.dmg[0].min, p.dmg[0].max], [3, 10], '1d8+1 에 날 세우기 +1');
+  run.deck.hand = ['strike']; p = RUN.preview(run, { t: 'card', i: 0, target: { id: 'e900' } }); assert.deepEqual([p.dmg[0].min, p.dmg[0].max], [5, 12], '정밀 타격 = 무기 피해 +2');
+  assert.equal(RUN.weapon(mkw({ heroId: 'noa', deck: D.HEROES.noa.deck, gear: ['longsword'] })).dice, '1d4+1', '전용 무기는 다른 대원에게 효과가 없다');
+  run = mkw({ noCrit: false, gear: ['longsword'] }); RUN.room(run).enemies[0].st.exposed = 9; p = RUN.preview(run, { t: 'attack', id: 'e900' }); assert.equal(p.dmg[0].crit, 9 + 8 + 2, '치명타 최대 = 1d8+1 최대 + 1d8 최대(+빈틈 2)');
+  let crits = 0; for (let i = 0; i < 80; i++) { const r = mkw({ noCrit: false, gear: ['longsword'], seed: 'cr' + i }), e = RUN.room(r).enemies[0]; RUN.act(r, { t: 'attack', id: e.id }); const n = 200 - e.hp; assert.ok(n >= 2 && n <= 17); if (r.log.some(l => /치명타로 주사위/.test(l))) crits++; } assert.ok(crits > 0);
+});
+
+test('가방·주머니·장비 칸: 가방은 칸을, 주머니 옵션은 묶음 크기를 키운다. 무기·가방은 한 칸씩 바꿔 끼고 옵션 칸을 넘지 못한다', () => {
+  const g = G.newGame(); g.facilities.workshop = 3; g.stock = { flax: 30, hide: 30, wood: 30, coal: 30, ore: 30, crystal: 9, relic: 3, resin: 9 };
+  for (const id of ['satchel', 'framepack', 'longsword', 'warhammer']) assert.ok(G.invest(g, { kind: 'gear', id }).ok, id);
+  assert.ok(G.equip(g, 'ara', 'satchel').ok); assert.ok(G.equip(g, 'ara', 'framepack').ok); assert.deepEqual(g.heroes.ara.gear, ['framepack'], '가방은 바꿔 낀다'); assert.ok(G.equip(g, 'ara', 'longsword').ok); assert.ok(G.equip(g, 'ara', 'warhammer').ok); assert.deepEqual(g.heroes.ara.gear, ['framepack', 'warhammer']);
+  assert.equal(G.equip(g, 'noa', 'longsword').ok, false, '전용 장비'); assert.ok(G.invest(g, { kind: 'gear', id: 'coat' }).ok); assert.ok(G.equip(g, 'ara', 'coat').ok, '장신구 칸은 따로');
+  assert.ok(G.allTargets(g).some(t => t.t.kind === 'option' && t.t.id === 'framepack')); assert.ok(G.invest(g, { kind: 'option', id: 'framepack', opt: 'pouch_ore' }).ok); assert.ok(G.invest(g, { kind: 'option', id: 'framepack', opt: 'reinforced' }).ok); assert.equal(G.invest(g, { kind: 'option', id: 'framepack', opt: 'pouch_herb' }).ok, false, '옵션 칸 2');
+  assert.ok(G.removeOption(g, 'framepack', 'reinforced').ok); assert.ok(G.invest(g, { kind: 'option', id: 'framepack', opt: 'pouch_herb' }).ok);
+  const state = { meta: { created: 'T' }, guild: g, run: null }; assert.ok(G.startRun(state, 'bag').ok); const run = state.run;
+  assert.equal(RUN.bagSlots(run), 6 + 4); assert.equal(RUN.stackOf(run, 'ore'), 5 + 3); assert.equal(RUN.stackOf(run, 'herb'), 5 + 3); assert.equal(RUN.stackOf(run, 'hide'), ER.data.MATERIALS.hide.stack);
+  assert.equal(RUN.addBag(run, 'ore', 8), 0); assert.equal(run.bag.length, 1, '광석 8개가 한 칸'); assert.match(ER.data.gearText('framepack', ['pouch_ore']), /가방 칸 \+4.*광석 주머니/);
+});
+
+test('이벤트: 트리거·조건·선택지 효과·플래그 연결. 대화 중에는 다른 행동이 막히고, 플래그는 귀환 뒤 길드 이벤트로 이어진다', () => {
+  const g = G.newGame(), state = { meta: { created: 'T' }, guild: g, run: null }; assert.ok(G.startRun(state, 'ev1').ok); let run = state.run;
+  assert.equal(run.pendingEvent.id, 'first_descent'); assert.equal(RUN.act(run, { t: 'step', dir: 'down' }).ok, false, '대화 먼저'); const copy = JSON.parse(JSON.stringify(RUN.strip(run))); assert.equal(copy.pendingEvent.id, 'first_descent');
+  assert.ok(RUN.act(run, { t: 'event', choice: -1 }).ok); assert.equal(run.pendingEvent, null); assert.ok(RUN.act(run, { t: 'step', dir: 'down' }).ok);
+  const sh = run.rooms.find(r => r.type === 'shelter'), from = run.rooms.find(r => Object.values(r.doors).some(d => d.to === sh.id)), dir = Object.keys(from.doors).find(d => from.doors[d].to === sh.id);
+  run.roomId = from.id; from.enemies = []; run.hero.x = M.INSIDE[dir][0]; run.hero.y = M.INSIDE[dir][1]; run.mode = 'explore'; const door = M.DOOR[dir]; assert.ok(RUN.act(run, { t: 'move', x: door[0], y: door[1] }).ok);
+  assert.equal(run.pendingEvent.id, 'wounded_scout'); assert.equal(RUN.act(run, { t: 'event', choice: 0 }).ok, false, '약초가 없으면 고를 수 없다'); RUN.addBag(run, 'herb', 3); const gold = run.gold; assert.ok(RUN.act(run, { t: 'event', choice: 0 }).ok);
+  assert.equal(run.gold, gold + 8); assert.equal(run.bag.find(s => s.mat === 'herb').qty, 1); assert.ok(run.evFlags.scout_saved); assert.equal(run.pendingEvent, null);
+  run.status = 'extracted'; const rep = G.settle(state); assert.ok(rep); assert.ok(g.evFlags.scout_saved); assert.ok(g.evSeen.includes('wounded_scout')); assert.equal(g.pendingEvent.id, 'scout_returns');
+  const ore = g.stock.ore || 0; assert.ok(G.answer(g, 0).ok); assert.equal(g.stock.ore, ore + 3); assert.ok(!g.evFlags.scout_saved); assert.equal(g.pendingEvent, null);
+  assert.ok(G.startRun(state, 'ev2').ok); assert.equal(state.run.pendingEvent, null, '한 번 본 이벤트는 다시 뜨지 않는다');
+  g.stock = { wood: 9, ore: 9 }; assert.ok(G.invest(g, { kind: 'facility', id: 'workshop' }).ok); assert.equal(g.pendingEvent.id, 'workshop_open');
+  assert.ok(ER.events.lint({ id: 'x', trigger: { type: 'returnGuild' }, pages: [{ text: 'a' }], choices: [{ label: 'b', effects: [{ type: 'hp', n: 3 }] }] }).some(m => /원정 중/.test(m)), '길드 이벤트에 원정 전용 효과는 경고'
+);
 });

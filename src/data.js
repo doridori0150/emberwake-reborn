@@ -44,8 +44,8 @@
   const CARDS = {};
   [
     // ── 공용 기초
-    C('strike', '정밀 타격', 'main', 'attack', 1, 'enemy', '인접한 적에게 피해 6.', { dmg: 6, art: 'cardart.finisher',
-      upgrades: [{ id: 'a', name: '묵직하게', text: '피해 8.', patch: { dmg: 8 } }, { id: 'b', name: '길게', text: '사거리 2(직선 시야).', patch: { range: 2 } }] }),
+    C('strike', '정밀 타격', 'main', 'attack', 1, 'enemy', '인접한 적에게 무기 피해 +2.', { roll: 'weapon', dmg: 2, art: 'cardart.finisher',
+      upgrades: [{ id: 'a', name: '묵직하게', text: '무기 피해 +4.', patch: { dmg: 4 } }, { id: 'b', name: '길게', text: '사거리 2(직선 시야).', patch: { range: 2 } }] }),
     C('guard_up', '방패 올리기', 'bonus', 'defense', 0, 'self', '방어 3을 얻는다(다음 내 턴까지).', { block: 3, art: 'cardart.ward',
       upgrades: [{ id: 'a', name: '단단히', text: '방어 5.', patch: { block: 5 } }, { id: 'b', name: '숨 돌리기', text: '방어 3, 카드 1장 뽑기.', patch: { draw: 1 } }] }),
     C('dash', '질주', 'bonus', 'move', 0, 'self', '이번 턴 이동 +2.', { move: 2, art: 'cardart.shadowstep' }),
@@ -98,17 +98,17 @@
   };
 
   const HEROES = {
-    ara: { id: 'ara', name: '아라', title: '방패 선봉', asset: 'actor.ara', hp: 30, move: 4, attack: { dmg: 4, range: 1, name: '검 베기' }, guardBonus: 1,
+    ara: { id: 'ara', name: '아라', title: '방패 선봉', asset: 'actor.ara', hp: 30, move: 4, attack: { dmg: 4, dice: '1d6+1', range: 1, name: '검 베기' }, guardBonus: 1,
       passive: '기본 방어 +1. 방어로 근접 공격을 완전히 막으면 피해 2로 받아친다(적 턴당 1회).', gaugeText: '방어로 공격을 막아내면 투지 +1(적 턴당 1회).',
       special: { id: 'rally', name: '수호의 함성', slot: 'bonus', range: 0, target: 'self', text: '방어 +6, 다음 내 턴까지 근접 공격에 피해 3으로 반격.', block: 6, retaliate: 3 }, build: '방어·반격: 맞을 자리를 고르고, 쌓은 방어를 피해로 바꾼다.',
       deck: ['strike', 'strike', 'guard_up', 'guard_up', 'riposte', 'riposte', 'bulwark', 'shield_bash', 'taunt', 'dash', 'focus', 'mend'],
       perks: [[{ id: 'ara_guard', name: '굳건함', text: '기본 방어 +2.' }, { id: 'ara_van', name: '선봉', text: '전투 첫 턴 이동 +2.' }], [{ id: 'ara_counter', name: '응수', text: '모든 반격 피해 +2.' }, { id: 'ara_iron', name: '철의 의지', text: '최대 체력 +6.' }]] },
-    noa: { id: 'noa', name: '노아', title: '그림자 길잡이', asset: 'actor.noa', hp: 26, move: 5, attack: { dmg: 3, range: 1, name: '쌍날 베기' },
+    noa: { id: 'noa', name: '노아', title: '그림자 길잡이', asset: 'actor.noa', hp: 26, move: 5, attack: { dmg: 3, dice: '1d4+1', range: 1, name: '쌍날 베기' },
       passive: '이동 5. 기본 공격 후 이동 +1. 3칸 이상 움직인 턴에는 다음 적 턴의 첫 근접 피해 -2(회피).', gaugeText: '한 턴에 3칸 이상 움직이면 투지 +1(턴당 1회).',
       special: { id: 'shadow', name: '그림자 난무', slot: 'main', range: 3, target: 'enemy', text: '3칸 안의 적 곁으로 순간이동해 피해 5. 이후 이동 +2. (뒤잡기 조건도 채워진다)', dmg: 5 }, build: '이동·밀치기·지형: 적을 벽과 가시덤불로 몰아 부딪히게 한다.',
       deck: ['strike', 'strike', 'shove', 'shove', 'hook', 'vault', 'backstab', 'backstab', 'dash', 'dash', 'harvest', 'mend'],
       perks: [[{ id: 'noa_feet', name: '가벼운 발', text: '이동 +1.' }, { id: 'noa_slam', name: '약점 포착', text: '충돌·지형 피해 +2.' }], [{ id: 'noa_ambush', name: '기습 달인', text: '기습 피해 +3.' }, { id: 'noa_loot', name: '약탈자의 손', text: '상자 판정 +2.' }]] },
-    lumi: { id: 'lumi', name: '루미', title: '달빛 술사', asset: 'actor.lumi', hp: 24, move: 4, attack: { dmg: 3, range: 3, name: '마력탄' },
+    lumi: { id: 'lumi', name: '루미', title: '달빛 술사', asset: 'actor.lumi', hp: 24, move: 4, attack: { dmg: 3, dice: '1d4+1', range: 3, name: '마력탄' },
       passive: '기본 공격 사거리 3. 상태이상에 걸린 적에게 주는 직접 피해 +1.', gaugeText: '화상·중독을 부여하면 투지 +1(턴당 1회).',
       special: { id: 'moonburst', name: '달빛 폭주', slot: 'main', range: 4, target: 'enemy', text: '대상과 주변 1칸의 적(최대 4)에게 피해 2, 화상 2.', dmg: 2, burn: 2, area: 1, maxTargets: 4 }, build: '상태이상·연쇄: 불과 독을 쌓고 기폭·전이로 한꺼번에 터뜨린다.',
       deck: ['ignite', 'ignite', 'frost', 'frost', 'detonate', 'detonate', 'spark', 'spark', 'guard_up', 'focus', 'regroup', 'mend'],
@@ -219,7 +219,7 @@
     coat: { name: '수선한 외투', tier: 1, icon: 'gear.coat', cost: { flax: 3, resin: 1 }, text: '최대 체력 +4.', hp: 4 },
     strap: { name: '수지 방패끈', tier: 1, icon: 'gear.shield', cost: { hide: 2, ore: 2 }, text: '전투 시작 시 방어 3.', startBlock: 3 },
     pick: { name: '채집 곡괭이', tier: 1, icon: 'gear.pick', cost: { ore: 3, wood: 2 }, text: '광석·수지·열탄·수정 채집 +1.', gather: 1 },
-    satchel: { name: '큰 배낭', tier: 1, icon: 'gear.pack', cost: { flax: 4, hide: 1 }, text: '가방 +1칸.', bag: 1 },
+    satchel: { name: '큰 배낭', slot: 'bag', tier: 1, icon: 'gear.pack', cost: { flax: 4, hide: 1 }, bag: 2, options: ['pouch_ore', 'pouch_herb', 'reinforced'], optionSlots: 1 },
     tools: { name: '해체 도구', tier: 1, icon: 'gear.compass', cost: { ore: 2, resin: 2 }, text: '상자·제단 판정 +3.', check: 3 },
     lantern: { name: '열탄 랜턴', tier: 2, icon: 'gear.signal', cost: { coal: 3, ore: 2 }, text: '시야 +1. 붉은달의 시야 감소를 무시.', vision: 1 },
     spikes: { name: '가시 징', tier: 2, icon: 'gear.sword', cost: { coal: 2, hide: 2 }, text: '충돌·지형 피해 +2.', slam: 2 },
@@ -238,8 +238,26 @@
     revival: { name: '길드 재건 선언', text: '별을 삼킨 사제를 쓰러뜨리고 항로 원본을 가져온다.', auto: 'boss:archive', reward: { gold: 150 }, rewardText: '금화 150 · 길드 재건', region: 'archive' }
   };
 
+  /* 장비 칸: weapon(무기 1) · bag(가방 1) · trinket(나머지, RULES.gearSlots). 무기는 기본 공격의 피해 주사위를 바꾼다(D&D식: 치명타는 주사위를 한 번 더 굴린다).
+     GEAR_EFFECTS: 장비와 제작 옵션이 가질 수 있는 수치. 엔진은 gearSum 으로 합산만 한다. 'stack:<재료>' 는 그 재료의 묶음 크기 +n. */
+  const GEAR_SLOTS = { weapon: '무기', bag: '가방', trinket: '장신구' };
+  const GEAR_EFFECTS = { bonus: '무기 피해 +', crit: '치명타 확률 +', hp: '최대 체력 +', startBlock: '전투 시작 방어 +', bag: '가방 칸 +', stackAll: '모든 재료 묶음 +', gather: '광물 채집 +', check: '상자·제단 판정 +', vision: '시야 +', slam: '충돌·지형 피해 +', status: '턴 첫 화상·중독 +', exposedBonus: '빈틈 적 피해 +', flare: '섬광(원정당 횟수)' };
+  const CRAFT_OPTIONS = {}; // 제작 옵션: { name, slots:[...], cost:{}, effects:{} }. content.js 에서 채운다.
+  const effectText = fx => Object.entries(fx || {}).filter(([, v]) => v).map(([k, v]) => (k.startsWith('stack:') ? (MATERIALS[k.slice(6)]?.name || k.slice(6)) + ' 묶음 +' + v : (GEAR_EFFECTS[k] || k) + (k === 'flare' ? ' ' : '') + v + (k === 'crit' ? '%' : ''))).join(', ');
+  const gearEffects = x => Object.fromEntries(Object.entries(x).filter(([k, v]) => typeof v === 'number' && (GEAR_EFFECTS[k] || k.startsWith('stack:'))));
+  function gearText(id, opts) { const x = GEAR[id]; if (!x) return ''; const parts = []; if (x.weapon) parts.push('기본 공격 ' + x.weapon.dice + (x.weapon.range ? ' · 사거리 ' + x.weapon.range : '')); const fx = effectText(gearEffects(x)); if (fx) parts.push(fx); let t = x.text || parts.join(' · ') + '.'; if (x.text && x.weapon) t = parts[0] + ' · ' + t; for (const o of opts || []) if (CRAFT_OPTIONS[o]) t += ' [' + CRAFT_OPTIONS[o].name + ': ' + effectText(CRAFT_OPTIONS[o].effects) + ']'; return t; }
+
   // 도구가 관리하는 콘텐츠(content.js)를 합친다.
   const CONTENT = ER.CONTENT || {};
+  const BASE = JSON.parse(JSON.stringify({ rules: RULES, materials: MATERIALS, heroes: HEROES, gear: GEAR })); // content 를 합치기 전의 원본(도구의 "기본값으로")
+  for (const [k, v] of Object.entries(CONTENT.gear || {})) GEAR[k] = Object.assign(GEAR[k] || {}, v);
+  for (const [k, v] of Object.entries(CONTENT.craftOptions || {})) CRAFT_OPTIONS[k] = v;
+  { const t = CONTENT.tuning || {}; // 기본 수치 덮어쓰기
+    for (const [k, v] of Object.entries(t.rules || {})) { if (v && typeof v === 'object' && RULES[k] && typeof RULES[k] === 'object') Object.assign(RULES[k], v); else if (k in RULES) RULES[k] = v; }
+    for (const [k, v] of Object.entries(t.materials || {})) if (MATERIALS[k]) Object.assign(MATERIALS[k], v);
+    for (const [k, v] of Object.entries(t.heroes || {})) if (HEROES[k]) { const { attack, ...rest } = v; Object.assign(HEROES[k], rest); if (attack) Object.assign(HEROES[k].attack, attack); } }
+  const PORTRAITS = Object.assign({ 'actor.ara': { name: '아라', asset: 'actor.ara' }, 'actor.noa': { name: '노아', asset: 'actor.noa' }, 'actor.lumi': { name: '루미', asset: 'actor.lumi' } }, CONTENT.portraits || {});
+  const EVENTS = CONTENT.events || [];
   for (const [k, v] of Object.entries(CONTENT.enemies || {})) ENEMIES[k] = Object.assign(ENEMIES[k] || {}, v);
   for (const q of Object.values(REGIONS)) for (const def of Object.values(q.rooms_def)) def.baseEnemies = def.enemies.map(gp => gp.slice());
   function applySpawns(spawns) { // 기본 조합 + content 의 조합. 도구가 편집 중에도 다시 부른다.
@@ -248,6 +266,6 @@
   }
   applySpawns(CONTENT.spawns);
 
-  ER.data = { TRAITS, AI_TYPES, enemyNote, applySpawns, RULES, MATERIALS, CARDS, RESEARCH, HEROES, TRAINING, ENEMIES, REGIONS, CHESTS, ALTAR, FACILITIES, GEAR, QUESTS };
+  ER.data = { BASE, GEAR_SLOTS, GEAR_EFFECTS, CRAFT_OPTIONS, effectText, gearEffects, gearText, PORTRAITS, EVENTS, TRAITS, AI_TYPES, enemyNote, applySpawns, RULES, MATERIALS, CARDS, RESEARCH, HEROES, TRAINING, ENEMIES, REGIONS, CHESTS, ALTAR, FACILITIES, GEAR, QUESTS };
   if (typeof module === 'object') module.exports = ER;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
