@@ -52,6 +52,7 @@
     "reinforced": { "name": "덧댄 바닥", "slots": ["bag"], "cost": { "hide": 2, "ore": 1 }, "effects": { "bag": 1 } }
   },
   "portraits": {},
+  "npcs": {},
   "tuning": {},
   "events": [
     {

@@ -311,3 +311,17 @@ test('이벤트: 트리거·조건·선택지 효과·플래그 연결. 대화 �
   assert.ok(ER.events.lint({ id: 'x', trigger: { type: 'returnGuild' }, pages: [{ text: 'a' }], choices: [{ label: 'b', effects: [{ type: 'hp', n: 3 }] }] }).some(m => /원정 중/.test(m)), '길드 이벤트에 원정 전용 효과는 경고'
 );
 });
+
+test('마을·가게: 가격에 따라 손님 반응이 갈리고 수첩·수요에 남는다. 장사는 하루 한 번, 원정에서 돌아오면 새 날', () => {
+  const D = ER.data, g = G.newGame(); G.ensure(g); assert.equal(G.shopDay(g, [{ mat: 'wood', qty: 1, price: 2 }]).ok, false, '창고 복구 전에는 못 연다');
+  g.facilities.stash = 1; g.stock = { wood: 40, ore: 40 }; assert.equal(G.shopSlots(g), D.RULES.shop.slots + 1); assert.equal(G.dayPhase(g), 'day');
+  assert.equal(G.shopDay(g, [{ mat: 'wood', qty: 99, price: 2 }]).ok, false, '재고보다 많이 올릴 수 없다'); assert.equal(G.shopDay(g, [1, 2, 3, 4, 5].map(() => ({ mat: 'wood', qty: 1, price: 2 }))).ok, false, '진열 칸 초과');
+  const gold = g.gold, cheap = G.shopDay(g, [{ mat: 'wood', qty: 20, price: 1 }], 's1'); assert.ok(cheap.ok); assert.equal(cheap.visits[0].mood, 'cheap'); assert.ok(cheap.visits.every(v => v.qty > 0 && v.mood !== 'refuse')); assert.equal(g.gold, gold + cheap.gold); assert.equal(g.stock.wood, 40 - cheap.sold.wood); assert.equal(g.shop.notes.wood.cheap, 1); assert.ok(g.shop.demand.wood < 1, '많이 팔면 수요가 떨어진다');
+  assert.equal(G.dayPhase(g), 'dusk'); assert.equal(G.shopDay(g, [{ mat: 'ore', qty: 1, price: 3 }]).ok, false, '하루 한 번'); assert.equal(G.sell(g, 'ore', 2).gold, 2 * Math.floor(D.MATERIALS.ore.value * D.RULES.shop.quickSell), '급매는 헐값');
+  const d0 = g.shop.demand.wood; G.newDay(g); assert.equal(g.day, 2); assert.equal(G.dayPhase(g), 'day'); assert.ok((g.shop.demand.wood ?? 1) > d0, '날이 지나면 수요가 돌아온다');
+  const dear = G.shopDay(g, [{ mat: 'ore', qty: 5, price: 30 }], 's2'); assert.ok(dear.visits.every(v => v.mood === 'refuse' && v.qty === 0)); assert.equal(dear.gold, 0); assert.equal(g.shop.notes.ore.refuse, 30); assert.equal(dear.unsold[0].qty, 5);
+  const a = G.newGame(), b = G.newGame(); for (const q of [a, b]) { q.facilities.stash = 2; q.stock = { ore: 30, wood: 30 }; } assert.deepEqual(G.shopDay(a, [{ mat: 'ore', qty: 9, price: 3 }, { mat: 'wood', qty: 9, price: 2 }], 'same'), G.shopDay(b, [{ mat: 'ore', qty: 9, price: 3 }, { mat: 'wood', qty: 9, price: 2 }], 'same'), '같은 시드는 같은 하루');
+  const state = { meta: { created: 'T' }, guild: g, run: null }; assert.ok(G.startRun(state, 'day').ok); state.run.status = 'extracted'; const day = g.day; G.settle(state); assert.equal(g.day, day + 1);
+  for (const [id, n] of Object.entries(D.NPCS)) { assert.ok(D.PORTRAITS['npc.' + id], id); assert.ok(n.greet.length); const p = Object.values(D.TOWN.places).some(pl => n.x >= pl.zone[0] && n.x <= pl.zone[1] && n.y >= pl.zone[2] && n.y <= pl.zone[3]); assert.ok(!p, id + ': 건물 안에 서 있다'); }
+  assert.ok(ER.events.TRIGGERS.npcTalk);
+});

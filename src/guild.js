@@ -9,7 +9,7 @@
   const ORDER = ['verdant', 'foundry', 'archive'], D = ER.data;
   if (typeof require === 'function' && !ER.events) require('./events.js');
   // 이전 저장에는 없는 칸을 채운다(제작 옵션·이벤트 기록).
-  function ensure(G) { G.gearOpts = G.gearOpts || {}; G.evFlags = G.evFlags || {}; G.evSeen = G.evSeen || []; G.eventQueue = G.eventQueue || []; if (G.pendingEvent === undefined) G.pendingEvent = null; return G; }
+  function ensure(G) { G.day = G.day || 1; G.shop = G.shop || { done: false, notes: {}, demand: {}, last: null }; G.gearOpts = G.gearOpts || {}; G.evFlags = G.evFlags || {}; G.evSeen = G.evSeen || []; G.eventQueue = G.eventQueue || []; if (G.pendingEvent === undefined) G.pendingEvent = null; return G; }
   const slotOf = id => GEAR[id]?.slot || 'trinket';
 
   function newGame() {
@@ -70,7 +70,30 @@
     return { ok: true, note, name: info.name };
   }
   function completeQuest(G, id) { const q = QUESTS[id], r = q.reward; G.quests[id] = true; if (r.gold) G.gold += r.gold; if (r.gear && !G.gearOwned.includes(r.gear)) G.gearOwned.push(r.gear); if (r.scroll) G.stock.scroll = (G.stock.scroll || 0) + r.scroll; if (r.unlock) G.regions[r.unlock].unlocked = true; return q.rewardText; }
-  function sell(G, mat, qty) { if (G.facilities.stash < 1) return { ok: false, reason: '회수 창고 1단계 필요' }; if ((G.stock[mat] || 0) < qty || qty < 1) return { ok: false, reason: '수량 부족' }; const gold = Math.floor(MATERIALS[mat].value * qty * (G.facilities.stash >= 3 ? 1.25 : 1)); pay(G, { [mat]: qty }); G.gold += gold; return { ok: true, gold }; }
+  /* 가게(문라이터식): 하루에 한 번, 진열대에 재료를 올리고 값을 정하면 손님이 와서 반응한다.
+     손님이 생각하는 값 = 판매가 × 수요(많이 팔면 내려가고 날이 지나면 회복) × 개인차(0.85~1.25) × 창고 3단계 보너스.
+     가격 ÷ 그 값이 cheap 이하면 "횡재", fair 이하면 "만족", high 이하면 "망설이다 구입", 넘으면 "비싸다"며 그냥 간다. 반응은 가격 수첩(notes)에 남는다.
+     급매(sell)는 기다리지 않는 대신 헐값이다. */
+  const SHOP = () => RULES.shop, quickPrice = (G, mat) => Math.max(1, Math.floor(MATERIALS[mat].value * SHOP().quickSell));
+  const shopSlots = G => (G.facilities.stash < 1 ? 0 : SHOP().slots + G.facilities.stash);
+  const shopCustomers = G => SHOP().customers + shopSlots(G) + Math.floor(Object.values(G.facilities).reduce((a, b) => a + b, 0) / 3);
+  function shopRng(seed) { let s = 0; for (const c of String(seed)) s = Math.imul(s ^ c.charCodeAt(0), 0x45d9f3b) >>> 0; return () => ((s = Math.imul(s ^ (s >>> 15), 0x2c1b3c6d) + 0x297a2d39 >>> 0) / 4294967296); }
+  function shopDay(G, shelves, seed) { // shelves: [{mat, qty, price}]. 결과: { visits:[{shelf, mat, price, mood, qty, gold}], gold, sold:{} }
+    ensure(G); if (G.facilities.stash < 1) return { ok: false, reason: '회수 창고 1단계 필요' }; if (G.shop.done) return { ok: false, reason: '오늘 장사는 이미 마쳤다. 원정을 다녀오면 새 날이 온다.' };
+    const list = (shelves || []).filter(sh => sh && MATERIALS[sh.mat] && sh.qty > 0 && sh.price > 0); if (!list.length) return { ok: false, reason: '진열대가 비어 있다' }; if (list.length > shopSlots(G)) return { ok: false, reason: '진열 칸은 ' + shopSlots(G) + '개' };
+    const need = {}; for (const sh of list) need[sh.mat] = (need[sh.mat] || 0) + sh.qty; for (const [m, n] of Object.entries(need)) if ((G.stock[m] || 0) < n) return { ok: false, reason: MATERIALS[m].name + ' 재고 부족' };
+    const R = shopRng(seed || (G.runSeq + ':' + G.day)), left = list.map(sh => sh.qty), visits = [], sold = {}, bonus = G.facilities.stash >= 3 ? 1.25 : 1; let gold = 0;
+    for (let i = 0; i < shopCustomers(G); i++) { const open = list.map((sh, k) => k).filter(k => left[k] > 0); if (!open.length) break; const k = open[Math.floor(R() * open.length)], sh = list[k], demand = G.shop.demand[sh.mat] ?? 1;
+      const worth = MATERIALS[sh.mat].value * demand * (0.85 + R() * 0.4) * bonus, ratio = sh.price / worth, mood = ratio <= SHOP().cheap ? 'cheap' : ratio <= SHOP().fair ? 'happy' : ratio <= SHOP().high ? 'reluctant' : 'refuse', want = mood === 'refuse' ? 0 : Math.min(left[k], mood === 'reluctant' ? 1 : 1 + Math.floor(R() * 3));
+      left[k] -= want; const pay = want * sh.price; gold += pay; if (want) { sold[sh.mat] = (sold[sh.mat] || 0) + want; G.shop.demand[sh.mat] = Math.max(0.6, demand - SHOP().demandDrop * want); }
+      const n = G.shop.notes[sh.mat] = G.shop.notes[sh.mat] || {}; if (mood === 'cheap') n.cheap = Math.max(n.cheap || 0, sh.price); else if (mood === 'happy') n.happy = Math.max(n.happy || 0, sh.price); else if (mood === 'reluctant') n.reluctant = Math.max(n.reluctant || 0, sh.price); else n.refuse = Math.min(n.refuse || 9999, sh.price);
+      visits.push({ shelf: k, mat: sh.mat, price: sh.price, mood, qty: want, gold: pay }); }
+    for (const [m, n] of Object.entries(sold)) G.stock[m] -= n; G.gold += gold; G.shop.done = true; G.shop.last = { day: G.day, gold, sold };
+    return { ok: true, visits, gold, sold, unsold: list.map((sh, k) => ({ mat: sh.mat, qty: left[k] })).filter(x => x.qty > 0) };
+  }
+  function newDay(G) { ensure(G); G.day += 1; G.shop.done = false; for (const m of Object.keys(G.shop.demand)) { G.shop.demand[m] = Math.min(1, G.shop.demand[m] + SHOP().demandRecover); if (G.shop.demand[m] >= 1) delete G.shop.demand[m]; } }
+  const dayPhase = G => (ensure(G).shop.done ? 'dusk' : 'day');
+  function sell(G, mat, qty) { if (G.facilities.stash < 1) return { ok: false, reason: '회수 창고 1단계 필요' }; if ((G.stock[mat] || 0) < qty || qty < 1) return { ok: false, reason: '수량 부족' }; const gold = quickPrice(G, mat) * qty; pay(G, { [mat]: qty }); G.gold += gold; return { ok: true, gold }; }
 
   // 덱·장비
   function deckIssues(G, heroId, deck) { const out = [], count = {}; if (deck.length !== RULES.deckSize) out.push('덱은 정확히 ' + RULES.deckSize + '장 (' + deck.length + '장)'); for (const id of deck) { count[id] = (count[id] || 0) + 1; const c = CARDS[id]; if (!c || !G.cards.includes(id)) out.push('없는 카드: ' + id); else if (c.hero && c.hero !== heroId) out.push(c.name + ': 다른 대원 전용'); } for (const [id, n] of Object.entries(count)) if (n > RULES.maxCopies) out.push(CARDS[id].name + ': 같은 카드는 ' + RULES.maxCopies + '장까지'); return out; }
@@ -127,9 +150,9 @@
     }
     rep.newly = allTargets(G).filter(x => x.can && !before.includes(x.name)).map(x => ({ name: x.name, effect: x.effect, t: x.t }));
     if (G.pinned) { const p = target(G, G.pinned); rep.pinned = { name: p.name, can: p.can, missing: p.missing, effect: p.effect, t: p.t }; }
-    G.lastReport = rep; state.run = null; fire(G, 'returnGuild', { region: run.regionId, outcome: run.status }); return rep;
+    G.lastReport = rep; state.run = null; newDay(G); rep.day = G.day; fire(G, 'returnGuild', { region: run.regionId, outcome: run.status }); return rep;
   }
 
-  ER.guild = { ensure, slotOf, removeOption, fire, answer, ORDER, newGame, have, affordable, target, allTargets, invest, sell, deckIssues, deckAdd, deckRemove, equip, gearSlots, mods, startRun, settle, facilityVisible, questVisible, sameTarget, sources };
+  ER.guild = { shopSlots, shopCustomers, shopDay, newDay, dayPhase, quickPrice, ensure, slotOf, removeOption, fire, answer, ORDER, newGame, have, affordable, target, allTargets, invest, sell, deckIssues, deckAdd, deckRemove, equip, gearSlots, mods, startRun, settle, facilityVisible, questVisible, sameTarget, sources };
   if (typeof module === 'object') module.exports = ER;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

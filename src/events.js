@@ -14,7 +14,8 @@
     bossKill: { name: '수호자 처치', where: 'run', filters: ['region', 'hero'] },
     returnGuild: { name: '길드로 돌아옴', where: 'guild', filters: ['region', 'outcome'] },
     facility: { name: '시설 복구 완료', where: 'guild', filters: ['facility', 'level'] },
-    guildVisit: { name: '길드 화면에 들어옴', where: 'guild', filters: [] }
+    guildVisit: { name: '길드 화면에 들어옴', where: 'guild', filters: [] },
+    npcTalk: { name: '주민에게 말을 걺', where: 'guild', filters: ['npc'] }
   };
   const EFFECTS = {
     gold: { name: '금화', where: 'both', fields: ['n'] }, mat: { name: '재료', where: 'both', fields: ['mat', 'n'] }, flag: { name: '플래그 켜기', where: 'both', fields: ['flag'] }, unflag: { name: '플래그 끄기', where: 'both', fields: ['flag'] },
@@ -27,7 +28,7 @@
   function requireOk(req, have) { if (!req) return true; if (req.gold && have.gold < req.gold) return false; for (const [m, n] of Object.entries(req.mat || {})) if (have.mat(m) < n) return false; if (req.hero && req.hero !== have.hero) return false; if (req.flag && !have.flags[req.flag]) return false; if (req.notFlag && have.flags[req.notFlag]) return false; return true; }
   function matches(ev, type, ctx, flags, seen) {
     const t = ev.trigger || {}; if (ev.disabled || t.type !== type) return false; if (!t.repeat && seen.includes(ev.id)) return false;
-    for (const k of ['region', 'roomType', 'room', 'hero', 'facility', 'outcome']) if (t[k] && t[k] !== ctx[k]) return false;
+    for (const k of ['region', 'roomType', 'room', 'hero', 'facility', 'outcome', 'npc']) if (t[k] && t[k] !== ctx[k]) return false;
     if (t.level && +t.level !== +ctx.level) return false; if (t.flag && !flags[t.flag]) return false; if (t.notFlag && flags[t.notFlag]) return false; return true;
   }
   // 조건에 맞는 첫 이벤트. chance(%)가 있으면 roll()(0~1)로 거른다.

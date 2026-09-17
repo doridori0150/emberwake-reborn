@@ -10,6 +10,7 @@
     roomW: 13, roomH: 9,
     move: 4, deckSize: 12, maxCopies: 2, startHand: 5, drawPerTurn: 2, handMax: 7,
     bagSlots: 6, gearSlots: 2,
+    shop: { slots: 2, customers: 4, cheap: 0.75, fair: 1.0, high: 1.15, quickSell: 0.6, demandDrop: 0.05, demandRecover: 0.2 }, // 가게: 기본 진열 칸·손님 수, 반응 기준(가격÷손님이 생각한 값), 급매 비율, 수요 하락·회복
     level: { guardRadius: 3, patrolDoorDist: 3, hazardMax: 3, handmade: 0.4 }, // 방 구성: 경비 반경, 순찰로와 문 사이 거리, 방당 경비 옆 위험 지형 수, 수제 방이 있을 때 쓰는 확률
     guardBlock: 3, ambushBonus: 2,
     crit: { base: 10, exposed: 20, noaMoved: 10 }, // 치명타 확률(%)·피해 +50%. 영웅의 직접 공격에만 적용, 적은 치명타가 없다
@@ -256,7 +257,22 @@
     for (const [k, v] of Object.entries(t.rules || {})) { if (v && typeof v === 'object' && RULES[k] && typeof RULES[k] === 'object') Object.assign(RULES[k], v); else if (k in RULES) RULES[k] = v; }
     for (const [k, v] of Object.entries(t.materials || {})) if (MATERIALS[k]) Object.assign(MATERIALS[k], v);
     for (const [k, v] of Object.entries(t.heroes || {})) if (HEROES[k]) { const { attack, ...rest } = v; Object.assign(HEROES[k], rest); if (attack) Object.assign(HEROES[k].attack, attack); } }
+  /* 마을: 걸어 다니는 로비. 건물 부지(zone)는 막힌 칸, spot 은 그림의 발밑 기준점(타일). 주민(NPC)은 content.js 의 npcs 로 덮어쓰거나 추가한다.
+     role: 말을 걸면 열리는 시설(workshop/stash/barracks/observatory) 또는 없음. greet: 돌아가며 하는 인사. greetRuin: 시설이 폐허일 때. */
+  const TOWN = { w: 30, h: 20, start: [15, 5],
+    places: { gate: { spot: [15, 2.8], zone: [14, 15, 1, 2] }, board: { spot: [15, 9.4], zone: [14, 15, 8, 9] }, workshop: { spot: [5.5, 6.4], zone: [3, 7, 4, 6] }, stash: { spot: [24.5, 6.4], zone: [22, 26, 4, 6] }, barracks: { spot: [5, 14.4], zone: [3, 6, 12, 14] }, observatory: { spot: [24.5, 14.4], zone: [23, 26, 12, 14] } },
+    roads: [[14, 15, 3, 18], [4, 25, 7, 7], [4, 25, 15, 15], [11, 18, 10, 11]], fountain: [14, 15, 12, 13] };
+  const NPCS = {
+    smith: { name: '대장장이 브론', asset: 'actor.ara', tint: 'hue-rotate(25deg) saturate(.6) brightness(.8)', x: 8, y: 7, dir: 'down', role: 'workshop', greet: ['쇠는 거짓말을 안 해. 뭘 만들어 줄까?', '좋은 광석을 가져오면 좋은 날이 나온다네.'], greetRuin: ['화로가 식은 지 오래야… 목재와 철광만 있으면 다시 불을 붙일 수 있네.'] },
+    keeper: { name: '창고지기 미라', asset: 'actor.lumi', tint: 'sepia(.7) saturate(1.4) hue-rotate(-20deg)', x: 21, y: 7, dir: 'down', role: 'stash', greet: ['오늘은 뭘 진열할까? 가격은 네가 정해.', '손님 표정을 잘 봐 둬. 값을 가늠하는 데 그만한 게 없어.'], greetRuin: ['선반만 고치면 가게를 다시 열 수 있을 텐데.'] },
+    trainer: { name: '교관 도르간', asset: 'actor.ara', tint: 'hue-rotate(200deg) saturate(.8)', x: 7, y: 15, dir: 'down', role: 'barracks', greet: ['몸이 기억할 때까지 반복이다.', '다친 데는 없나? 붕대는 넉넉히 챙겨.'], greetRuin: ['훈련장이 이 꼴이어서야… 약초와 섬유부터 구해 오게.'] },
+    scholar: { name: '연구원 에린', asset: 'actor.lumi', tint: 'hue-rotate(95deg) saturate(.9)', x: 22, y: 15, dir: 'down', role: 'observatory', greet: ['미궁의 별자리가 또 바뀌었어. 새 카드를 연구해 볼래?', '고문서 한 장이면 밤을 새울 수 있지.'], greetRuin: ['망원경이 깨져 있어. 수지와 고문서가 있으면 고칠 수 있을 텐데.'] },
+    elder: { name: '촌장 할다', asset: 'actor.noa', tint: 'grayscale(.8) brightness(1.15)', x: 17, y: 10, dir: 'left', role: null, greet: ['길드에 불이 다시 켜지다니… 오래 살고 볼 일이야.', '욕심은 미궁에 두고 오너라. 살아서 돌아온 것만 네 것이다.', '게시판의 의뢰도 가끔 들여다보렴.'] }
+  };
+  BASE.npcs = JSON.parse(JSON.stringify(NPCS));
   const PORTRAITS = Object.assign({ 'actor.ara': { name: '아라', asset: 'actor.ara' }, 'actor.noa': { name: '노아', asset: 'actor.noa' }, 'actor.lumi': { name: '루미', asset: 'actor.lumi' } }, CONTENT.portraits || {});
+  for (const [k, v] of Object.entries(CONTENT.npcs || {})) NPCS[k] = Object.assign(NPCS[k] || {}, v);
+  for (const [k, n] of Object.entries(NPCS)) if (!PORTRAITS['npc.' + k]) PORTRAITS['npc.' + k] = { name: n.name, asset: n.asset, tint: n.tint, auto: true };
   const EVENTS = CONTENT.events || [];
   for (const [k, v] of Object.entries(CONTENT.enemies || {})) ENEMIES[k] = Object.assign(ENEMIES[k] || {}, v);
   for (const q of Object.values(REGIONS)) for (const def of Object.values(q.rooms_def)) def.baseEnemies = def.enemies.map(gp => gp.slice());
@@ -266,6 +282,6 @@
   }
   applySpawns(CONTENT.spawns);
 
-  ER.data = { BASE, GEAR_SLOTS, GEAR_EFFECTS, CRAFT_OPTIONS, effectText, gearEffects, gearText, PORTRAITS, EVENTS, TRAITS, AI_TYPES, enemyNote, applySpawns, RULES, MATERIALS, CARDS, RESEARCH, HEROES, TRAINING, ENEMIES, REGIONS, CHESTS, ALTAR, FACILITIES, GEAR, QUESTS };
+  ER.data = { TOWN, NPCS, BASE, GEAR_SLOTS, GEAR_EFFECTS, CRAFT_OPTIONS, effectText, gearEffects, gearText, PORTRAITS, EVENTS, TRAITS, AI_TYPES, enemyNote, applySpawns, RULES, MATERIALS, CARDS, RESEARCH, HEROES, TRAINING, ENEMIES, REGIONS, CHESTS, ALTAR, FACILITIES, GEAR, QUESTS };
   if (typeof module === 'object') module.exports = ER;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

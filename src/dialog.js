@@ -15,7 +15,7 @@
     const p = D.PORTRAITS[id]; box.className = 'pt' + (p ? '' : ' none'); box.innerHTML = ''; box.style.backgroundImage = ''; if (!p) return;
     if (p.src) { box.style.backgroundImage = 'url("' + p.src + '")'; return; }
     const a = ER.gfx?.asset(p.asset); if (!a) return; const cv = document.createElement('canvas'); cv.width = 180; cv.height = 240; box.append(cv);
-    const an = a.anims?.idle, fr = a.kind === 'actor' ? (an?.dirs?.down || [])[0] : an?.frames?.[0]; if (fr != null) ER.gfx.sprite(cv.getContext('2d'), p.asset, fr, 90, 330, 300, a.kind !== 'actor' && !a.facesLeft, null);
+    const an = a.anims?.idle, fr = a.kind === 'actor' ? (an?.dirs?.down || [])[0] : an?.frames?.[0]; if (fr != null) ER.gfx.sprite(cv.getContext('2d'), p.asset, fr, 90, 330, 300, a.kind !== 'actor' && !a.facesLeft, p.tint || null);
   }
   /* open(ev, { can(choice)→bool, onChoose(index)→void, vars:{hero}, onClose() }) */
   function open(ev, o = {}) {

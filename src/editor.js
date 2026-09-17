@@ -6,7 +6,7 @@
   const ER = g.ER, D = ER.data, M = ER.map, { ENEMIES, REGIONS, MATERIALS, CHESTS, TRAITS, AI_TYPES, RULES } = D, W = M.W, H = M.H;
   const $ = s => document.querySelector(s), clone = o => JSON.parse(JSON.stringify(o)), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
-  const C = ER.CONTENT = Object.assign({ enemies: {}, spawns: [], gear: {}, craftOptions: {}, portraits: {}, tuning: {}, events: [], rooms: [] }, ER.CONTENT);
+  const C = ER.CONTENT = Object.assign({ enemies: {}, spawns: [], gear: {}, craftOptions: {}, portraits: {}, npcs: {}, tuning: {}, events: [], rooms: [] }, ER.CONTENT);
   const TABS = {}, HOOKS = { restore: [], problems: [] }; // 다른 파일(editor2.js)이 탭과 되돌리기·검사 훅을 더한다 // 작업본(생성기도 같은 객체를 본다)
   let saved = JSON.stringify(C), canSave = false, tab = 'review';
 
