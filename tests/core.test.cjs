@@ -276,7 +276,7 @@ test('수제 방·콘텐츠 파일: 검사 통과, 어떤 문 조합에서도 �
 test('무기 주사위: 미리보기 범위 안에서 굴리고, 치명타는 주사위를 한 번 더. 무기·옵션이 기본 공격과 무기 피해 카드에 반영된다', () => {
   const D = ER.data, mkw = (o = {}) => { const run = RUN.create(Object.assign({ regionId: 'verdant', heroId: 'ara', deck: D.HEROES.ara.deck, seed: 'wp', noCrit: true, noEvents: true }, o)), rm = RUN.room(run); rm.objects = []; rm.tiles = rm.tiles.map(r => r.replace(/[oh]/g, '.')); run.hero.x = 3; run.hero.y = 4; rm.enemies = [Object.assign(M.makeEnemy('brute', 4, 4, { n: 900 }), { state: 'alert', hp: 200, maxHp: 200, armor: 0 })]; run.mode = 'combat'; run.turn = 1; Object.assign(run.hero, { mp: 4, main: 1, bonus: 1 }); return run; };
   let run = mkw(); assert.equal(RUN.weapon(run).dice, '1d6+1'); let p = RUN.preview(run, { t: 'attack', id: 'e900' }); assert.deepEqual([p.dmg[0].min, p.dmg[0].max], [2, 7]); assert.equal(p.dice, '1d6+1');
-  const seen = new Set(); for (let i = 0; i < 60; i++) { const r = mkw({ seed: 'wp' + i }), e = RUN.room(r).enemies[0], snap = JSON.stringify(r.rng); assert.equal(JSON.stringify(r.rng), snap, '미리보기는 난수를 쓰지 않는다'); RUN.act(r, { t: 'attack', id: e.id }); const n = 200 - e.hp; assert.ok(n >= 2 && n <= 7, '범위 밖 ' + n); seen.add(n); } assert.ok(seen.size >= 5, '여러 눈이 나온다');
+  const seen = new Set(); for (let i = 0; i < 60; i++) { const r = mkw({ seed: 'wp' + i }), e = RUN.room(r).enemies[0], snap = JSON.stringify(r.rng); RUN.preview(r, { t: 'attack', id: e.id }); assert.equal(JSON.stringify(r.rng), snap, '미리보기는 난수를 쓰지 않는다'); RUN.act(r, { t: 'attack', id: e.id }); assert.notEqual(JSON.stringify(r.rng), snap, '실제 공격은 주사위를 굴린다'); const n = 200 - e.hp; assert.ok(n >= 2 && n <= 7, '범위 밖 ' + n); seen.add(n); } assert.ok(seen.size >= 5, '여러 눈이 나온다');
   run = mkw({ gear: ['longsword'], gearOpts: { longsword: ['keen'] } }); assert.equal(RUN.weapon(run).dice, '1d8+1'); p = RUN.preview(run, { t: 'attack', id: 'e900' }); assert.deepEqual([p.dmg[0].min, p.dmg[0].max], [3, 10], '1d8+1 에 날 세우기 +1');
   run.deck.hand = ['strike']; p = RUN.preview(run, { t: 'card', i: 0, target: { id: 'e900' } }); assert.deepEqual([p.dmg[0].min, p.dmg[0].max], [5, 12], '정밀 타격 = 무기 피해 +2');
   assert.equal(RUN.weapon(mkw({ heroId: 'noa', deck: D.HEROES.noa.deck, gear: ['longsword'] })).dice, '1d4+1', '전용 무기는 다른 대원에게 효과가 없다');
@@ -324,4 +324,48 @@ test('마을·가게: 가격에 따라 손님 반응이 갈리고 수첩·수요
   const state = { meta: { created: 'T' }, guild: g, run: null }; assert.ok(G.startRun(state, 'day').ok); state.run.status = 'extracted'; const day = g.day; G.settle(state); assert.equal(g.day, day + 1);
   for (const [id, n] of Object.entries(D.NPCS)) { assert.ok(D.PORTRAITS['npc.' + id], id); assert.ok(n.greet.length); const p = Object.values(D.TOWN.places).some(pl => n.x >= pl.zone[0] && n.x <= pl.zone[1] && n.y >= pl.zone[2] && n.y <= pl.zone[3]); assert.ok(!p, id + ': 건물 안에 서 있다'); }
   assert.ok(ER.events.TRIGGERS.npcTalk);
+});
+
+// ── 2026-09-18 리뷰(docs/codex-requests/2026-09-18-cleanup-review.md)에서 나온 회귀 검사
+function loadDataWith(content) { // content 를 바꿔 data.js 를 새로 읽는다(도구에서 저장 → 게임 재시작을 흉내 낸다)
+  const vm = require('node:vm'), fs = require('node:fs'), path = require('node:path'), box = { ER: { CONTENT: JSON.parse(JSON.stringify(content)) } }; box.globalThis = box;
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'data.js'), 'utf8'), box); return box.ER.data;
+}
+
+test('콘텐츠 병합: 도구가 저장한 항목은 기본 항목을 통째로 교체한다 — 0 으로 만들거나 지운 속성이 되살아나지 않는다', () => {
+  const base = ER.data.BASE, C = JSON.parse(JSON.stringify(ER.CONTENT)); assert.equal(base.enemies.brute.armor, 1); assert.equal(base.gear.satchel.bag, 2);
+  const brute = JSON.parse(JSON.stringify(base.enemies.brute)); delete brute.armor; C.enemies.brute = brute; const satchel = JSON.parse(JSON.stringify(base.gear.satchel)); delete satchel.bag; satchel.hp = 3; C.gear.satchel = satchel;
+  const smith = JSON.parse(JSON.stringify(base.npcs.smith)); delete smith.greetRuin; C.npcs.smith = smith;
+  const D2 = loadDataWith(C); assert.equal(D2.ENEMIES.brute.armor, undefined, '장갑을 지웠으면 없는 채로'); assert.equal(D2.GEAR.satchel.bag, undefined); assert.equal(D2.GEAR.satchel.hp, 3); assert.equal(D2.NPCS.smith.greetRuin, undefined);
+  assert.equal(D2.BASE.enemies.brute.armor, 1, '출고 기본값은 그대로 남아 "기본값으로 되돌리기"에 쓴다'); assert.equal(D2.BASE.gear.satchel.bag, 2);
+  delete C.enemies.brute; delete C.gear.satchel; const D3 = loadDataWith(C); assert.equal(D3.ENEMIES.brute.armor, 1, '덮어쓰기를 지우면 기본값으로'); assert.equal(D3.GEAR.satchel.bag, 2);
+  C.spawns.push({ region: 'verdant', room: 'supply' }); assert.doesNotThrow(() => loadDataWith(C), 'group 없는 등장 조합이 있어도 게임은 뜬다');
+});
+
+test('콘텐츠 모양 검사: 깨진 등장 조합·음수 조건·수치 아닌 값은 저장 전에 거부한다', () => {
+  const fmt = require('../src/contentfmt.js').contentfmt, ok = () => JSON.parse(JSON.stringify(ER.CONTENT)); assert.equal(fmt.check(ok()), null);
+  let c = ok(); c.spawns.push({ region: 'verdant', room: 'supply' }); assert.match(fmt.check(c), /등장 조합/);
+  c = ok(); c.events[1].choices[0].require = { gold: -100 }; assert.match(fmt.check(c), /조건 금화/); assert.ok(ER.events.lint(c.events[1]).some(m => /음수/.test(m))); assert.equal(ER.events.requireOk({ gold: -100 }, { gold: 0, mat: () => 0, flags: {} }), false, '음수 조건은 고를 수 없다');
+  c = ok(); c.enemies.sporeling.hp = 'many'; assert.match(fmt.check(c), /hp/); c = ok(); delete c.enemies.sporeling.gold; assert.match(fmt.check(c), /gold/);
+  c = ok(); c.gear.longsword.cost.ore = 0; assert.match(fmt.check(c), /비용/); c = ok(); c.npcs.x1 = { name: '누구' }; assert.match(fmt.check(c), /주민/);
+});
+
+test('지워진 콘텐츠와 옛 저장: 고정 목표·장착 장비·진행 중인 적이 사라져도 이어하기와 정산이 된다', () => {
+  const g = G.newGame(); g.facilities.workshop = 2; g.stock = { ore: 20, wood: 20, hide: 20, coal: 20 }; assert.ok(G.invest(g, { kind: 'gear', id: 'longsword' }).ok); assert.ok(G.equip(g, 'ara', 'longsword').ok);
+  const state = { meta: { created: 'T' }, guild: g, run: null }; assert.ok(G.startRun(state, 'gone').ok); const run = state.run, rm = run.rooms.find(r => r.enemies.length);
+  // 콘텐츠에서 지워진 것처럼 꾸민다: 없는 장비·옵션·카드·적 종류, 없는 투자 목표
+  g.gearOwned.push('ghost_blade'); g.heroes.ara.gear.push('ghost_blade'); g.gearOpts = { ghost_blade: ['keen'], longsword: ['no_such_option'] }; g.pinned = { kind: 'gear', id: 'ghost_blade' }; g.cards.push('no_card'); g.heroes.ara.deck[0] = 'no_card'; run.gear.push('ghost_blade'); run.deck.hand.push('no_card');
+  rm.enemies.push({ id: 'e999', kind: 'no_such_enemy', x: 5, y: 5, hp: 3, maxHp: 3, armor: 0, state: 'alert', st: {}, intent: null, step: 0 }); const chest = rm.objects.find(o => o.guards); if (chest) chest.guards.push('e999');
+  assert.equal(G.target(g, g.pinned).locked, '콘텐츠에서 지워진 항목', '없는 장비를 가리켜도 예외가 없다'); assert.doesNotThrow(() => G.allTargets(g));
+  const old = JSON.parse(JSON.stringify(state)); delete old.guild.shop; delete old.guild.day; delete old.guild.gearOpts.longsword; delete old.guild.evFlags; // 더 옛 저장처럼 필드도 빠져 있다
+  const notes = G.sanitize(old); assert.ok(notes.length >= 3, notes.join(' / ')); assert.equal(old.guild.pinned, null); assert.deepEqual(old.guild.heroes.ara.gear, ['longsword']); assert.ok(!old.guild.cards.includes('no_card')); assert.equal(old.guild.day, 1);
+  assert.ok(old.run.rooms.every(r => r.enemies.every(e => ER.data.ENEMIES[e.kind]))); assert.ok(!old.run.gear.includes('ghost_blade')); assert.ok(!old.run.deck.hand.includes('no_card')); assert.deepEqual(G.sanitize(old), [], '두 번째에는 고칠 것이 없다');
+  old.run.pendingEvent = null; assert.doesNotThrow(() => { RUN.preview(old.run, { t: 'move', x: old.run.hero.x, y: old.run.hero.y + 1 }); RUN.act(old.run, { t: 'step', dir: 'down' }); });
+  assert.ok(RUN.act(old.run, { t: 'giveUp' }).ok); assert.equal(old.run.status, 'defeat'); assert.ok(G.settle(old), '정산까지 된다'); assert.equal(G.selectHero(old.guild, 'nobody').ok, false); assert.ok(G.selectHero(old.guild, 'noa').ok);
+});
+
+test('저장 구조 검사: 필수 칸이 빠진 기록은 불러오지 않는다', () => {
+  const S = ER.save, good = { meta: { created: 'T' }, guild: G.newGame(), run: null }; assert.ok(S.unpack(S.pack(good)));
+  for (const strip of ['heroes', 'roster', 'regions', 'selected']) { const bad = JSON.parse(JSON.stringify(good)); delete bad.guild[strip]; assert.throws(() => S.unpack(S.pack(bad)), /구조/, strip); }
+  assert.throws(() => S.unpack({ app: S.APP, broken: true }), /읽을 수 없습니다/);
 });

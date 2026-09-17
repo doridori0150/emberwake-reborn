@@ -4,3 +4,4 @@ dist/
 *.key
 *.pem
 *.log
+assets/generated/

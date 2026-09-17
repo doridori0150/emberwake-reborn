@@ -250,9 +250,13 @@
 
   // 도구가 관리하는 콘텐츠(content.js)를 합친다.
   const CONTENT = ER.CONTENT || {};
-  const BASE = JSON.parse(JSON.stringify({ rules: RULES, materials: MATERIALS, heroes: HEROES, gear: GEAR })); // content 를 합치기 전의 원본(도구의 "기본값으로")
-  for (const [k, v] of Object.entries(CONTENT.gear || {})) GEAR[k] = Object.assign(GEAR[k] || {}, v);
-  for (const [k, v] of Object.entries(CONTENT.craftOptions || {})) CRAFT_OPTIONS[k] = v;
+  const copy = o => JSON.parse(JSON.stringify(o));
+  const BASE = copy({ rules: RULES, materials: MATERIALS, heroes: HEROES, gear: GEAR, enemies: ENEMIES }); // content 를 합치기 전의 원본(도구의 "기본값으로")
+  /* 병합 규칙: enemies·gear·craftOptions·npcs 의 content 항목은 같은 id 의 기본 항목을 **통째로 교체**한다(부분 덮어쓰기 아님).
+     도구는 항상 완성된 항목을 저장하므로, 0 으로 만들거나 지운 속성이 기본값에서 되살아나지 않는다. tuning 만 필드 단위 덮어쓰기다. */
+  const replaceItems = (table, over) => { for (const [k, v] of Object.entries(over || {})) if (v && typeof v === 'object') table[k] = copy(v); };
+  replaceItems(GEAR, CONTENT.gear);
+  replaceItems(CRAFT_OPTIONS, CONTENT.craftOptions);
   { const t = CONTENT.tuning || {}; // 기본 수치 덮어쓰기
     for (const [k, v] of Object.entries(t.rules || {})) { if (v && typeof v === 'object' && RULES[k] && typeof RULES[k] === 'object') Object.assign(RULES[k], v); else if (k in RULES) RULES[k] = v; }
     for (const [k, v] of Object.entries(t.materials || {})) if (MATERIALS[k]) Object.assign(MATERIALS[k], v);
@@ -269,16 +273,16 @@
     scholar: { name: '연구원 에린', asset: 'actor.lumi', tint: 'hue-rotate(95deg) saturate(.9)', x: 22, y: 15, dir: 'down', role: 'observatory', greet: ['미궁의 별자리가 또 바뀌었어. 새 카드를 연구해 볼래?', '고문서 한 장이면 밤을 새울 수 있지.'], greetRuin: ['망원경이 깨져 있어. 수지와 고문서가 있으면 고칠 수 있을 텐데.'] },
     elder: { name: '촌장 할다', asset: 'actor.noa', tint: 'grayscale(.8) brightness(1.15)', x: 17, y: 10, dir: 'left', role: null, greet: ['길드에 불이 다시 켜지다니… 오래 살고 볼 일이야.', '욕심은 미궁에 두고 오너라. 살아서 돌아온 것만 네 것이다.', '게시판의 의뢰도 가끔 들여다보렴.'] }
   };
-  BASE.npcs = JSON.parse(JSON.stringify(NPCS));
+  BASE.npcs = copy(NPCS);
   const PORTRAITS = Object.assign({ 'actor.ara': { name: '아라', asset: 'actor.ara' }, 'actor.noa': { name: '노아', asset: 'actor.noa' }, 'actor.lumi': { name: '루미', asset: 'actor.lumi' } }, CONTENT.portraits || {});
-  for (const [k, v] of Object.entries(CONTENT.npcs || {})) NPCS[k] = Object.assign(NPCS[k] || {}, v);
+  replaceItems(NPCS, CONTENT.npcs);
   for (const [k, n] of Object.entries(NPCS)) if (!PORTRAITS['npc.' + k]) PORTRAITS['npc.' + k] = { name: n.name, asset: n.asset, tint: n.tint, auto: true };
   const EVENTS = CONTENT.events || [];
-  for (const [k, v] of Object.entries(CONTENT.enemies || {})) ENEMIES[k] = Object.assign(ENEMIES[k] || {}, v);
+  replaceItems(ENEMIES, CONTENT.enemies);
   for (const q of Object.values(REGIONS)) for (const def of Object.values(q.rooms_def)) def.baseEnemies = def.enemies.map(gp => gp.slice());
   function applySpawns(spawns) { // 기본 조합 + content 의 조합. 도구가 편집 중에도 다시 부른다.
     for (const q of Object.values(REGIONS)) for (const def of Object.values(q.rooms_def)) def.enemies = def.baseEnemies.map(gp => gp.slice());
-    for (const sp of spawns || []) { const def = REGIONS[sp.region]?.rooms_def[sp.room]; if (def && sp.group.every(k => ENEMIES[k])) def.enemies.push(sp.group.slice()); }
+    for (const sp of spawns || []) { const def = REGIONS[sp?.region]?.rooms_def[sp.room]; if (def && Array.isArray(sp.group) && sp.group.length && sp.group.every(k => ENEMIES[k] && !ENEMIES[k].boss)) def.enemies.push(sp.group.slice()); }
   }
   applySpawns(CONTENT.spawns);
 

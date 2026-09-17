@@ -8,7 +8,7 @@
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
   const C = ER.CONTENT = Object.assign({ enemies: {}, spawns: [], gear: {}, craftOptions: {}, portraits: {}, npcs: {}, tuning: {}, events: [], rooms: [] }, ER.CONTENT);
   const TABS = {}, HOOKS = { restore: [], problems: [] }; // 다른 파일(editor2.js)이 탭과 되돌리기·검사 훅을 더한다 // 작업본(생성기도 같은 객체를 본다)
-  let saved = JSON.stringify(C), canSave = false, tab = 'review';
+  let saved = JSON.stringify(C), canSave = false, saving = false, tab = 'review';
 
   // ───────── 공통: 상태 표시·저장
   const dirty = () => JSON.stringify(C) !== saved;
@@ -50,8 +50,9 @@
   async function save() {
     const why = ER.contentfmt.check(C); if (why) return status(why, 'bad'); const probs = problems();
     if (!canSave) return showText('src/content.js 본문', '로컬 서버(npm start)로 열지 않아 파일을 직접 쓸 수 없습니다. 아래 내용을 src/content.js 에 붙여 넣으세요.' + (probs.length ? ' 주의: ' + probs.join(' / ') : ''));
-    try { const r = await fetch('/__dev/content', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(C) }), j = await r.json(); if (!j.ok) return status('저장 실패: ' + j.reason, 'bad'); saved = JSON.stringify(C); status('저장됨 — 적 ' + j.enemies + ' · 등장 조합 ' + j.spawns + ' · 방 ' + j.rooms + (probs.length ? ' · 주의 ' + probs.length + '건: ' + probs[0] : ''), probs.length ? 'dirty' : ''); }
-    catch (e) { status('저장 실패: ' + e.message, 'bad'); }
+    if (saving) return status('저장 중입니다…'); saving = true; const sent = JSON.stringify(C); /* 응답을 기다리는 동안 더 고친 것은 저장된 것이 아니다: 보낸 스냅샷만 저장 완료로 친다 */
+    try { const r = await fetch('/__dev/content', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: sent }), j = await r.json(); saving = false; if (!j.ok) return status('저장 실패: ' + j.reason, 'bad'); saved = sent; if (dirty()) return status('저장됨 — 그 뒤에 고친 내용이 아직 남아 있습니다. 한 번 더 저장하세요.', 'dirty'); status('저장됨 — 적 ' + j.enemies + ' · 등장 조합 ' + j.spawns + ' · 방 ' + j.rooms + (probs.length ? ' · 주의 ' + probs.length + '건: ' + probs[0] : ''), probs.length ? 'dirty' : ''); }
+    catch (e) { saving = false; status('저장 실패: ' + e.message, 'bad'); }
   }
 
   // ───────── 공통: 방 그리기(도식). 생성된 방과 수제 방 정의를 같은 모양으로 받는다.
@@ -202,7 +203,7 @@
   const NF = { open: false, base: 'goblin', name: '', id: '' };
   const FO = { mateList: [], groupList: [], id: 'goblin', count: 1, mates: '', region: 'verdant', grown: false, n: 100, ref: 'goblin', result: null };
   const FIELDS = [['hp', '체력', 1, 200], ['dmg', '피해', 0, 30], ['speed', '이동', 0, 8], ['detect', '감지 거리', 1, 12], ['range', '사거리(0=근접)', 0, 8], ['armor', '장갑', 0, 5], ['size', '그림 크기', 24, 96]];
-  const isBase = k => !!ORIG[k]?.__base, badge = k => (!ORIG[k] ? '<span class="badge add">새 적</span>' : C.enemies[k] && ORIG[k].__base ? '<span class="badge mod">수정됨</span>' : ORIG[k].__base ? '<span class="badge">기본</span>' : '<span class="badge add">추가</span>');
+  const isBase = k => !!ORIG[k]?.__base, badge = k => (!ORIG[k] ? '<span class="badge add">추가</span>' : C.enemies[k] && ORIG[k].__base ? '<span class="badge mod">수정됨</span>' : ORIG[k].__base ? '<span class="badge">기본</span>' : '<span class="badge add">추가</span>');
   function edit(k, fn) { // 기본 적을 고치면 전체 사본이 content 에 덮어쓰기로 들어간다
     if (!C.enemies[k]) C.enemies[k] = clone(ENEMIES[k]); fn(C.enemies[k]); const d = C.enemies[k]; for (const f of ['range', 'armor']) if (!d[f]) delete d[f]; if (d.traits && !Object.keys(d.traits).length) delete d.traits; if (!d.note) delete d.note; if (!d.tint) delete d.tint; if (!d.elite) delete d.elite;
     ENEMIES[k] = clone(d); FO.result = null; touch();
@@ -265,9 +266,8 @@
   function show(t) { if (!TABS[t]) t = 'review'; tab = t; for (const id of Object.keys(TABS)) { $('#tab-' + id).hidden = id !== t; document.querySelector('[data-tab="' + id + '"]').classList.toggle('on', id === t); } try { history.replaceState(null, '', '#' + t); } catch (e) { /* file:// */ } TABS[t](); }
   ER.editor = { C, TABS, HOOKS, GUIDES, $, el, esc, clone, optList, chipPicker, guideHtml, bindGuide, touch, status, show, canSave: () => canSave };
   async function boot() {
-    for (const [k, d] of Object.entries(ENEMIES)) ORIG[k] = clone(d);
-    // data.js 의 기본 적. 고치면 content 에 덮어쓰기로 들어가고, 지울 수는 없다.
-    const baseIds = ['goblin', 'wolf', 'archer', 'shaman', 'brute', 'hound', 'sentry', 'slinger', 'acolyte', 'wraith', 'warden', 'overseer', 'hierophant', 'stalker']; for (const k of baseIds) if (ORIG[k]) { ORIG[k].__base = true; }
+    // 출고 기본값(data.BASE: content 를 합치기 전의 표). 기본 적을 고치면 content 에 통째로 들어가고, 지울 수는 없다.
+    for (const [k, d] of Object.entries(D.BASE.enemies)) { ORIG[k] = clone(d); ORIG[k].__base = true; }
     document.querySelectorAll('[data-tab]').forEach(b => { b.onclick = () => show(b.dataset.tab); });
     $('#btnSave').onclick = save; $('#btnText').onclick = () => showText('src/content.js 본문', '지금 작업본을 파일 본문으로 만든 것입니다.'); $('#dlgClose').onclick = () => { $('#dlg').hidden = true; }; $('#dlgCopy').onclick = async () => { $('#dlgText').select(); try { await navigator.clipboard.writeText($('#dlgText').value); status('복사했습니다'); } catch (e) { document.execCommand('copy'); } };
     g.addEventListener('beforeunload', e => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } });

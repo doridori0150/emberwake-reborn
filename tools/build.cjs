@@ -10,7 +10,7 @@ for (const a of Object.values(manifest.assets)) {
   if (!cache.has(a.src)) { const buf = fs.readFileSync(path.join(ROOT, a.src)); bytes += buf.length; cache.set(a.src, 'data:image/' + path.extname(a.src).slice(1) + ';base64,' + buf.toString('base64')); }
   a.src = cache.get(a.src);
 }
-const safe = s => s.replace(/<\/script/gi, '<\/script');
+const safe = s => s.replace(/<\/script/gi, '<\\/script'); // 내장 스크립트 안의 </script 가 태그를 닫지 못하게 한다
 html = html.replace('<link rel="stylesheet" href="styles.css">', '<style>\n' + read('styles.css') + '\n</style>');
 html = html.replace(/<script src="([^"]+)"><\/script>/g, (m, src) => src === 'src/asset-manifest.js'
   ? '<script>(function(g){g.ER=g.ER||{};g.ER.ASSETS=' + safe(JSON.stringify(manifest)) + ';})(globalThis);</script>'

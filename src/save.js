@@ -13,9 +13,10 @@
   function unpack(rec) {
     if (!rec || typeof rec !== 'object') throw new Error('저장 기록이 아닙니다.');
     if (rec.app !== APP) throw new Error('다른 게임의 저장 파일입니다.');
+    if (rec.broken) throw new Error('저장 기록을 읽을 수 없습니다(구문 오류).');
     if (typeof rec.data !== 'string' || sum(rec.data) !== rec.checksum) throw new Error('저장 파일이 손상되었습니다(체크섬 불일치).');
     let state; try { state = JSON.parse(rec.data); } catch { throw new Error('저장 파일이 손상되었습니다(구문 오류).'); }
-    if (!state || !state.guild || !state.guild.facilities || !state.meta) throw new Error('저장 파일 구조가 올바르지 않습니다.');
+    const G = state?.guild; if (!state || !state.meta || !G || typeof G.facilities !== 'object' || typeof G.heroes !== 'object' || !Array.isArray(G.roster) || !G.roster.length || typeof G.regions !== 'object' || !G.selected) throw new Error('저장 파일 구조가 올바르지 않습니다.');
     return migrate(state, rec.saveVersion);
   }
 
@@ -30,13 +31,13 @@
   function tx(db, rw, fn) { return new Promise((res, rej) => { const t = db.transaction(STORE, rw ? 'readwrite' : 'readonly'), st = t.objectStore(STORE); let out; t.oncomplete = () => res(out); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error('저장 취소')); fn(st, v => { out = v; }, t); }); }
   const lsKey = k => APP + ':' + k;
 
-  async function getRec(key) { const db = await open(); if (!db) { const s = g.localStorage?.getItem(lsKey(key)); return s ? JSON.parse(s) : null; } return tx(db, false, (st, set) => { const r = st.get(key); r.onsuccess = () => set(r.result || null); }); }
+  async function getRec(key) { const db = await open(); if (!db) { const s = g.localStorage?.getItem(lsKey(key)); if (!s) return null; try { return JSON.parse(s); } catch { return { app: APP, broken: true }; } } return tx(db, false, (st, set) => { const r = st.get(key); r.onsuccess = () => set(r.result || null); }); }
   async function load() { const rec = await getRec('current'); if (!rec) return { state: null }; try { const state = unpack(rec); knownRev = rec.rev || 0; return { state }; } catch (e) { return { state: null, error: e.message }; } }
 
   // 저장: 다른 세션이 더 새 기록을 썼다면 거부한다(force 로만 덮어쓴다).
   async function save(state, force) {
     const rec = Object.assign(pack(state), { key: 'current', session, rev: knownRev + 1 }); const db = await open();
-    if (!db) { try { g.localStorage.setItem(lsKey('current'), JSON.stringify(rec)); knownRev = rec.rev; return { ok: true }; } catch (e) { return { ok: false, reason: '저장 실패: ' + e.message }; } }
+    if (!db) { try { let cur = null; try { cur = JSON.parse(g.localStorage.getItem(lsKey('current')) || 'null'); } catch { cur = null; } if (!force && cur && cur.session !== session && (cur.rev || 0) >= rec.rev) return { ok: false, conflict: true, reason: '다른 탭에서 더 새로운 진행이 저장되었습니다.' }; g.localStorage.setItem(lsKey('current'), JSON.stringify(rec)); knownRev = rec.rev; return { ok: true }; } catch (e) { return { ok: false, reason: '저장 실패: ' + e.message }; } }
     try {
       const r = await tx(db, true, (st, set, t) => { const q = st.get('current'); q.onsuccess = () => { const cur = q.result; if (!force && cur && cur.session !== session && (cur.rev || 0) >= rec.rev) { set({ ok: false, conflict: true, reason: '다른 탭에서 더 새로운 진행이 저장되었습니다.' }); return; } if (force && cur) rec.rev = Math.max(rec.rev, (cur.rev || 0) + 1); st.put(rec); set({ ok: true }); }; });
       if (r.ok) knownRev = rec.rev; return r;

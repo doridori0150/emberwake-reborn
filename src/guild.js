@@ -28,7 +28,10 @@
   function sources(mat) { return ORDER.filter(r => REGIONS[r].materials.includes(mat)).map(r => REGIONS[r].name); }
 
   // 투자 대상의 이름·비용·효과·가능 여부를 한 형태로 돌려준다.
+  // 콘텐츠에서 지워진 항목을 가리키는 투자 대상인가(저장의 고정 목표 등)
+  const gone = t => !t || (t.kind === 'facility' && !FACILITIES[t.id]) || (t.kind === 'gear' && !GEAR[t.id]) || (t.kind === 'option' && (!GEAR[t.id] || !D.CRAFT_OPTIONS[t.opt])) || (t.kind === 'research' && (!CARDS[t.id] || !RESEARCH[CARDS[t.id].source])) || (t.kind === 'upgrade' && !CARDS[t.id]?.upgrades?.some(u => u.id === t.branch)) || (t.kind === 'train' && !HEROES[t.hero]) || (t.kind === 'quest' && !QUESTS[t.id]);
   function target(G, t) {
+    if (gone(t)) return { t, name: '(사라진 항목)', cost: {}, effect: '', locked: '콘텐츠에서 지워진 항목', done: true, can: false, missing: {}, sources: {} };
     let name, cost, effect, locked = null, done = false;
     if (t.kind === 'facility') { const f = FACILITIES[t.id], lv = G.facilities[t.id]; done = lv >= f.levels.length; const L = f.levels[Math.min(lv, f.levels.length - 1)]; name = f.name + ' ' + (lv + 1) + '단계' + (lv === 0 ? ' 복구' : ''); cost = L.cost; effect = L.text; if (!facilityVisible(G, t.id)) locked = '다른 시설을 먼저 복구'; }
     else if (t.kind === 'gear') { const x = GEAR[t.id]; name = x.name + ' 제작'; cost = x.cost || {}; effect = '[' + D.GEAR_SLOTS[slotOf(t.id)] + (x.heroes?.length ? ' · ' + x.heroes.map(h => HEROES[h]?.name || h).join('/') + ' 전용' : '') + '] ' + D.gearText(t.id); done = G.gearOwned.includes(t.id); if (!x.cost) locked = '의뢰 보상'; else if (G.facilities.workshop < x.tier) locked = '제작 공방 ' + x.tier + '단계 필요'; }
@@ -97,6 +100,24 @@
 
   // 덱·장비
   function deckIssues(G, heroId, deck) { const out = [], count = {}; if (deck.length !== RULES.deckSize) out.push('덱은 정확히 ' + RULES.deckSize + '장 (' + deck.length + '장)'); for (const id of deck) { count[id] = (count[id] || 0) + 1; const c = CARDS[id]; if (!c || !G.cards.includes(id)) out.push('없는 카드: ' + id); else if (c.hero && c.hero !== heroId) out.push(c.name + ': 다른 대원 전용'); } for (const [id, n] of Object.entries(count)) if (n > RULES.maxCopies) out.push(CARDS[id].name + ': 같은 카드는 ' + RULES.maxCopies + '장까지'); return out; }
+  /* 불러온 저장을 지금의 콘텐츠에 맞춘다: 지워진 장비·옵션·카드·적을 가리키는 참조를 걷어 낸다(원본 저장은 앱이 먼저 백업한다).
+     돌려주는 값은 사람이 읽을 정리 내역. 아무것도 안 바꿨으면 빈 배열. */
+  function sanitize(state) {
+    const G = ensure(state.guild), notes = [], keep = (list, ok, what) => { const out = list.filter(ok); if (out.length !== list.length) notes.push(what + ' ' + (list.length - out.length) + '개 정리'); return out; };
+    G.gearOwned = keep(G.gearOwned || [], id => GEAR[id], '사라진 장비'); G.cards = keep(G.cards || [], id => CARDS[id], '사라진 카드');
+    for (const h of Object.values(G.heroes || {})) { h.gear = (h.gear || []).filter(id => GEAR[id] && G.gearOwned.includes(id)); h.deck = keep(h.deck || [], id => CARDS[id], '덱의 사라진 카드'); }
+    for (const id of Object.keys(G.gearOpts)) { if (!GEAR[id]) delete G.gearOpts[id]; else G.gearOpts[id] = G.gearOpts[id].filter(o => D.CRAFT_OPTIONS[o]); }
+    for (const id of Object.keys(G.upgrades || {})) if (!CARDS[id]?.upgrades?.some(u => u.id === G.upgrades[id])) delete G.upgrades[id];
+    if (G.pinned && gone(G.pinned)) { G.pinned = null; notes.push('사라진 투자 목표 해제'); } if (!HEROES[G.selected?.hero] || !G.roster.includes(G.selected.hero)) G.selected.hero = G.roster[0]; if (!REGIONS[G.selected?.region]) G.selected.region = ORDER[0];
+    const run = state.run; if (run) { if (!REGIONS[run.regionId] || !HEROES[run.heroId]) { state.run = null; notes.push('지워진 지역·대원의 원정을 닫음'); } else { const E = D.ENEMIES; let n = 0;
+      for (const rm of run.rooms) { const before = rm.enemies.length; rm.enemies = rm.enemies.filter(e => E[e.kind]); n += before - rm.enemies.length; for (const o of rm.objects) if (o.guards) o.guards = o.guards.filter(id => rm.enemies.some(e => e.id === id)); }
+      const pb = (run.pursuers || []).length; run.pursuers = (run.pursuers || []).filter(p => E[p.e?.kind]); n += pb - run.pursuers.length; if (n) notes.push('사라진 적 ' + n + '마리 정리');
+      run.gear = (run.gear || []).filter(id => GEAR[id]); for (const pile of ['draw', 'hand', 'discard', 'exhaust']) run.deck[pile] = (run.deck[pile] || []).filter(id => CARDS[id]); run.temp = (run.temp || []).filter(id => CARDS[id]); run.bag = (run.bag || []).filter(sl => MATERIALS[sl.mat]);
+      if (run.mode === 'combat' && !run.rooms[run.roomId].enemies.some(e => e.hp > 0 && e.state === 'alert')) { run.mode = 'explore'; run.turn = 0; } } }
+    for (const k of Object.keys(G.stock || {})) if (!MATERIALS[k]) delete G.stock[k];
+    return notes;
+  }
+  function selectHero(G, heroId) { if (!HEROES[heroId] || !G.roster.includes(heroId)) return { ok: false, reason: '출격할 수 없는 대원' }; G.selected.hero = heroId; return { ok: true }; }
   function deckAdd(G, heroId, id) { const d = G.heroes[heroId].deck; if (d.length >= RULES.deckSize) return { ok: false, reason: '덱이 가득 찼다. 먼저 한 장을 빼세요.' }; if (d.filter(x => x === id).length >= RULES.maxCopies) return { ok: false, reason: '같은 카드는 ' + RULES.maxCopies + '장까지' }; const c = CARDS[id]; if (!G.cards.includes(id) || (c.hero && c.hero !== heroId)) return { ok: false, reason: '쓸 수 없는 카드' }; d.push(id); return { ok: true }; }
   function deckRemove(G, heroId, index) { G.heroes[heroId].deck.splice(index, 1); return { ok: true }; }
   function equip(G, heroId, id) { const h = G.heroes[heroId], i = h.gear.indexOf(id); if (i >= 0) { h.gear.splice(i, 1); return { ok: true }; } if (!G.gearOwned.includes(id)) return { ok: false, reason: '없는 장비' }; const x = GEAR[id], slot = slotOf(id); if (x.heroes?.length && !x.heroes.includes(heroId)) return { ok: false, reason: x.heroes.map(q => HEROES[q]?.name || q).join('/') + ' 전용 장비' };
@@ -106,7 +127,7 @@
   function removeOption(G, id, opt) { const o = ensure(G).gearOpts[id] || [], i = o.indexOf(opt); if (i < 0) return { ok: false, reason: '없는 옵션' }; o.splice(i, 1); return { ok: true }; }
   // ───────── 길드에서 뜨는 이벤트(귀환·시설 복구·방문). 한 번에 하나씩, 나머지는 줄을 선다.
   const evHave = G => ({ gold: G.gold, mat: m => G.stock[m] || 0, flags: G.evFlags, hero: G.selected.hero });
-  function fire(G, type, ctx) { ensure(G); const e = ER.events.pick(type, ctx || {}, G.evFlags, G.evSeen.concat(G.eventQueue, G.pendingEvent ? [G.pendingEvent.id] : []), Math.random); if (!e) return null; if (G.pendingEvent) G.eventQueue.push(e.id); else openEvent(G, e.id); return e.id; }
+  function fire(G, type, ctx) { ensure(G); const e = ER.events.pick(type, ctx || {}, G.evFlags, G.evSeen.concat(G.eventQueue, G.pendingEvent ? [G.pendingEvent.id] : []), shopRng('ev:' + type + ':' + G.day + ':' + G.runSeq + ':' + G.evSeen.length)); if (!e) return null; if (G.pendingEvent) G.eventQueue.push(e.id); else openEvent(G, e.id); return e.id; }
   function openEvent(G, id) { G.pendingEvent = { id }; if (!G.evSeen.includes(id)) G.evSeen.push(id); }
   function answer(G, choice) {
     ensure(G); const pe = G.pendingEvent, e = pe && ER.events.get(pe.id); if (!pe) return { ok: false, reason: '진행 중인 이벤트가 없다' }; let next = null, note = '';
@@ -153,6 +174,6 @@
     G.lastReport = rep; state.run = null; newDay(G); rep.day = G.day; fire(G, 'returnGuild', { region: run.regionId, outcome: run.status }); return rep;
   }
 
-  ER.guild = { shopSlots, shopCustomers, shopDay, newDay, dayPhase, quickPrice, ensure, slotOf, removeOption, fire, answer, ORDER, newGame, have, affordable, target, allTargets, invest, sell, deckIssues, deckAdd, deckRemove, equip, gearSlots, mods, startRun, settle, facilityVisible, questVisible, sameTarget, sources };
+  ER.guild = { sanitize, selectHero, shopSlots, shopCustomers, shopDay, newDay, dayPhase, quickPrice, ensure, slotOf, removeOption, fire, answer, ORDER, newGame, have, affordable, target, allTargets, invest, sell, deckIssues, deckAdd, deckRemove, equip, gearSlots, mods, startRun, settle, facilityVisible, questVisible, sameTarget, sources };
   if (typeof module === 'object') module.exports = ER;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

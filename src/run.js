@@ -710,6 +710,7 @@
   function act(run, a) {
     if (run.status !== 'active') return { ok: false, reason: '원정이 끝났다' };
     const h = run.hero; let r;
+    if (a.t === 'giveUp') { run.status = 'defeat'; run.pendingEvent = null; run.pendingDraft = null; say(run, '원정을 포기했다.'); ev(run, { t: 'defeat' }); return { ok: true }; }
     if (run.pendingEvent && a.t !== 'event') return { ok: false, reason: '대화를 먼저 마치세요' };
     if (a.t === 'event') return doEvent(run, a);
     if (run.pendingDraft && a.t !== 'draft') return { ok: false, reason: '발견한 카드를 먼저 고르세요' };
