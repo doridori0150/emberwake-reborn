@@ -252,7 +252,10 @@
     device: ['#b79cf2', '봉'],
     altar: ['#5fc9b8', '제'],
     camp: ['#ff9d5c', '불'],
-    portal: ['#ffe27a', '문']
+    portal: ['#ffe27a', '문'],
+    barrel: ['#e0605a', '통'],
+    crate: ['#b08a5a', '밀'],
+    lever: ['#f3c77e', '레']
   };
   function drawRoom(cv, room, T, o = {}) {
     cv.width = W * T;
@@ -274,6 +277,14 @@
         if (c === 'h') {
           ctx.fillStyle = COLORS.hazard;
           ctx.fillRect(x * T + 2, y * T + 2, T - 4, T - 4);
+        }
+        if (c === 's') {
+          /* 잠든 가시: 레버를 당기면 솟는다 */
+          ctx.strokeStyle = COLORS.hazard;
+          ctx.lineWidth = Math.max(1, T / 16);
+          ctx.setLineDash([3, 3]);
+          ctx.strokeRect(x * T + 3, y * T + 3, T - 6, T - 6);
+          ctx.setLineDash([]);
         }
         if (c === 'D') {
           ctx.fillStyle = COLORS.door;
@@ -559,12 +570,16 @@
     ['floor', '바닥', 'b'],
     ['pillar', '기둥', 'p'],
     ['hazard', '위험 지형', 'h'],
+    ['spike', '잠든 가시', 's'],
     ['node', '재료', 'n'],
     ['chest', '상자', 'c'],
     ['device', '봉인 장치', 'd'],
     ['altar', '제단', 'a'],
     ['camp', '모닥불', 'f'],
     ['portal', '귀환문', 'g'],
+    ['barrel', '폭발통', 'o'],
+    ['crate', '밀 상자', 'm'],
+    ['lever', '레버', 'l'],
     ['foe', '적', 'e'],
     ['patrol', '순찰 끝점', 'r'],
     ['erase', '지우기', 'x']
@@ -585,9 +600,9 @@
     const t = ED.tool;
     if (t === 'select') {
       if (!drag) ED.sel = thingAt(r, x, y) ? { x, y } : null;
-    } else if (t === 'floor' || t === 'pillar' || t === 'hazard') {
+    } else if (t === 'floor' || t === 'pillar' || t === 'hazard' || t === 'spike') {
       if (t !== 'floor') removeAt(r, x, y);
-      setTile(r, x, y, { floor: '.', pillar: 'o', hazard: 'h' }[t]);
+      setTile(r, x, y, { floor: '.', pillar: 'o', hazard: 'h', spike: 's' }[t]);
     } else if (t === 'erase') {
       if (thingAt(r, x, y)) removeAt(r, x, y);
       else setTile(r, x, y, '.');
@@ -940,7 +955,7 @@
       const [x, y] = at(e);
       ED.drag = ED.tool === 'select' ? thingAt(r, x, y) : null;
       applyTool(r, x, y, false);
-      if (['floor', 'pillar', 'hazard'].includes(ED.tool)) paint();
+      if (['floor', 'pillar', 'hazard', 'spike'].includes(ED.tool)) paint();
       else renderRooms();
     };
     cv.onmousemove = e => {
@@ -963,7 +978,7 @@
         }
         return;
       }
-      if (!ED.painting || !['floor', 'pillar', 'hazard'].includes(ED.tool)) return;
+      if (!ED.painting || !['floor', 'pillar', 'hazard', 'spike'].includes(ED.tool)) return;
       const [x, y] = at(e);
       applyTool(r, x, y, true);
       paint();

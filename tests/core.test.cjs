@@ -1351,3 +1351,142 @@ test('저장 구조 검사: 필수 칸이 빠진 기록은 불러오지 않는�
   }
   assert.throws(() => S.unpack({ app: S.APP, broken: true }), /읽을 수 없습니다/);
 });
+
+test('던전 기믹: 폭발통(밀어 넣기·불붙이기)·상자(밀기·시야 차단)·레버(가시 뒤집기)', () => {
+  const D = ER.data,
+    B = D.RULES.gimmick.barrelDmg,
+    obj = (run, o) => (RUN.room(run).objects.push(o), o);
+  // 폭발통: 적을 밀어 넣으면 충돌 + 폭발, 미리보기에 포함
+  let run = arena('noa', [['goblin', 4, 4]], { hand: ['shove'] });
+  obj(run, { id: 'oB', kind: 'barrel', x: 5, y: 4 });
+  const g = RUN.room(run).enemies[0],
+    p = RUN.preview(run, { t: 'card', i: 0, target: { id: g.id } });
+  assert.match(p.dmg[0].note, /폭발통/);
+  const hp = g.hp;
+  RUN.act(run, { t: 'card', i: 0, target: { id: g.id } });
+  assert.equal(hp - Math.max(0, g.hp), Math.min(hp, p.dmg[0].min), '예상 피해 = 실제 피해(충돌 + 폭발)');
+  assert.ok(!RUN.room(run).objects.some(o => o.kind === 'barrel'), '통은 사라진다');
+  // 불붙이기: 다음 적 턴 시작에 터진다. 위협 범위에 보이고, 곁에 남아 있으면 나도 맞는다
+  run = arena('ara', [['goblin', 9, 1]]);
+  const b = obj(run, { id: 'oB', kind: 'barrel', x: 4, y: 4 }),
+    b2 = obj(run, { id: 'oB2', kind: 'barrel', x: 5, y: 4 });
+  assert.equal(RUN.interactions(run, b)[0].blocked, null);
+  assert.ok(RUN.act(run, { t: 'interact', id: 'oB', method: 'ignite' }).ok);
+  assert.equal(run.hero.main, 0);
+  assert.ok(
+    RUN.allThreat(run).some(t => t[0] === 3 && t[1] === 4),
+    '터질 칸이 위협 범위에 보인다'
+  );
+  const h0 = run.hero.hp;
+  RUN.act(run, { t: 'end' });
+  assert.equal(h0 - run.hero.hp >= B, true, '곁에 서 있으면 휘말린다');
+  assert.equal(RUN.room(run).objects.filter(o => o.kind === 'barrel').length, 0, '옆 통도 연쇄로 터진다');
+  void b2;
+  run = mk('ara', 'gim');
+  const ex = obj(run, { id: 'oB', kind: 'barrel', x: run.hero.x + 1, y: run.hero.y });
+  assert.ok(RUN.interactions(run, ex)[0].blocked, '탐사 중에는 불을 붙일 수 없다');
+  // 상자: 한 칸 밀린다, 시야를 막는다, 막힌 쪽으로는 못 민다
+  run = arena('ara', [['archer', 8, 4]]);
+  const c = obj(run, { id: 'oC', kind: 'crate', x: 4, y: 4 }),
+    rm = RUN.room(run);
+  assert.equal(RUN.los(rm, run.hero, rm.enemies[0]), false, '상자 뒤는 사수에게 보이지 않는다');
+  const mp = run.hero.mp;
+  assert.ok(RUN.act(run, { t: 'interact', id: 'oC', method: 'push' }).ok);
+  assert.deepEqual([c.x, c.y], [5, 4]);
+  assert.equal(run.hero.mp, mp - 1);
+  rm.tiles[4] = rm.tiles[4].slice(0, 6) + 'o' + rm.tiles[4].slice(7);
+  run.hero.x = 4;
+  assert.ok(RUN.interactions(run, c)[0].blocked, '기둥 쪽으로는 못 민다');
+  // 레버: s ↔ h, 솟는 자리에 서 있던 적은 지형 피해
+  run = arena('ara', [['goblin', 6, 4]]);
+  const r2 = RUN.room(run);
+  r2.tiles[4] = r2.tiles[4].slice(0, 6) + 's' + r2.tiles[4].slice(7);
+  r2.tiles[2] = r2.tiles[2].slice(0, 2) + 'h' + r2.tiles[2].slice(3);
+  obj(run, { id: 'oL', kind: 'lever', on: false, x: 3, y: 3 });
+  const foe = r2.enemies[0],
+    fh = foe.hp;
+  assert.ok(RUN.act(run, { t: 'interact', id: 'oL', method: 'lever' }).ok);
+  assert.equal(run.hero.bonus, 0, '전투 중에는 보조 행동');
+  assert.equal(r2.tiles[4][6], 'h');
+  assert.equal(r2.tiles[2][2], 's');
+  assert.equal(fh - foe.hp, D.REGIONS.verdant.hazard.dmg);
+  // 생성: 기믹은 닿을 수 있는 자리에, 레버 방에는 뒤집을 칸이 있다
+  let n = 0;
+  for (const reg of ['verdant', 'foundry', 'archive'])
+    for (let i = 0; i < 60; i++)
+      for (const room of M.generate(reg, ER.rng.seedStreams('gm' + i)).rooms) {
+        assert.ok(M.valid(room));
+        for (const o of room.objects)
+          if (['barrel', 'crate', 'lever'].includes(o.kind)) {
+            n++;
+            if (o.kind === 'lever') assert.ok(/[hs]/.test(room.tiles.join('')), reg + ' lever');
+          }
+      }
+  assert.ok(n > 100, '기믹 ' + n + '개');
+  assert.ok(
+    M.lintRoom({
+      id: 'x',
+      type: 'hall',
+      regions: ['verdant'],
+      tiles: M.blank(),
+      objects: [{ kind: 'lever', x: 3, y: 3 }],
+      enemies: []
+    }).some(i => /레버/.test(i.msg))
+  );
+});
+
+test('귀환 편의: 가 본 방으로 자동 이동(시간은 그대로, 들키면 멈춤), 수호자 처치 시 귀환 균열, 귀환석', () => {
+  const run = mk('ara', 'travel');
+  const far = run.rooms.find(r => r.id !== 0 && !Object.values(run.rooms[0].doors).some(d => d.to === r.id));
+  assert.equal(RUN.act(run, { t: 'travel', to: far.id }).ok, false, '안 가 본 방으로는 못 간다');
+  assert.equal(RUN.travelInfo(run, far.id), null);
+  for (const r of run.rooms) {
+    r.visited = true;
+    r.enemies = [];
+  }
+  const sealedOk = !Object.values(far.doors).every(d => d.sealed),
+    target = sealedOk ? far : run.rooms.find(r => r.id !== 0 && r.type !== 'sanctum');
+  const info = RUN.travelInfo(run, target.id);
+  assert.ok(info.rooms >= 1);
+  const t0 = run.time,
+    res = RUN.act(run, { t: 'travel', to: target.id });
+  assert.ok(res.ok && res.arrived);
+  assert.equal(run.roomId, target.id);
+  assert.equal(run.time - t0, info.time, '걸어간 것과 같은 시간');
+  const sanctum = run.rooms.find(r => r.type === 'sanctum');
+  assert.equal(RUN.travelInfo(run, sanctum.id), null, '봉인된 문 너머로는 자동 이동하지 않는다');
+  // 들키면 그 방에서 멈춘다
+  const back = mk('ara', 'travel');
+  for (const r of back.rooms) {
+    r.visited = true;
+    if (r.type !== 'sanctum' && r.id !== 0) r.enemies.forEach(e => (e.state = 'alert'));
+  }
+  const goal = back.rooms.filter(r => r.type !== 'sanctum' && RUN.travelInfo(back, r.id)?.rooms >= 2)[0];
+  if (goal) {
+    const r3 = RUN.act(back, { t: 'travel', to: goal.id });
+    assert.ok(r3.ok);
+    if (!r3.arrived) assert.equal(back.mode, 'combat');
+  }
+  // 수호자를 잡으면 성소에 귀환 균열
+  const boss = arena('ara', [['warden', 4, 4]]);
+  const w = RUN.room(boss).enemies[0];
+  w.hp = 1;
+  RUN.act(boss, { t: 'attack', id: w.id });
+  const rift = RUN.room(boss).objects.find(o => o.kind === 'portal' && o.rift);
+  assert.ok(rift, '귀환 균열');
+  assert.ok(RUN.interactions(boss, rift).some(i => i.method === 'extract'));
+  // 귀환석: 탐사 중 즉시 귀환, 전투 중에는 불가, 원정당 1회
+  assert.ok(D_GEAR().recallstone, '귀환석 장비가 있다');
+  const rr = mk('ara', 'recall', 'verdant', { gear: ['recallstone'] });
+  assert.equal(rr.items.recall, 1);
+  rr.mode = 'combat';
+  assert.equal(RUN.act(rr, { t: 'recall' }).ok, false);
+  rr.mode = 'explore';
+  RUN.addBag(rr, 'wood', 2);
+  assert.ok(RUN.act(rr, { t: 'recall' }).ok);
+  assert.equal(rr.status, 'extracted');
+  assert.equal(rr.items.recall, 0);
+});
+function D_GEAR() {
+  return ER.data.GEAR;
+}

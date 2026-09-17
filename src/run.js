@@ -85,7 +85,7 @@
       },
       noCrit: !!o.noCrit,
       flatAttack: !!o.flatAttack,
-      noEvents: !!o.noEvents,
+      noEvents: !!o.noEvents || !!o.testRoom,
       gearOpts,
       evFlags: Object.assign({}, o.flags),
       evSeen: (o.seen || []).slice(),
@@ -95,7 +95,7 @@
       perks,
       upgrades: o.upgrades || {},
       mods,
-      items: { bandage: mods.bandages, flare: sum('flare') },
+      items: { bandage: mods.bandages, flare: sum('flare'), recall: sum('recall') },
       deck: { draw: [], hand: [], discard: [], exhaust: [] },
       bag: [],
       gold: 0,
@@ -202,7 +202,7 @@
   const ev = (run, e) => run.events.push(e);
 
   function los(rm, a, b) {
-    // 벽·기둥만 시야를 막는다.
+    // 벽·기둥, 그리고 밀 수 있는 상자(엄폐물)가 시야를 막는다.
     let x0 = a.x,
       y0 = a.y;
     const x1 = b.x,
@@ -222,7 +222,8 @@
         err += dx;
         y0 += sy;
       }
-      if ((x0 !== x1 || y0 !== y1) && solid(tile(rm, x0, y0))) return false;
+      if ((x0 !== x1 || y0 !== y1) && (solid(tile(rm, x0, y0)) || rm.objects.some(o => o.kind === 'crate' && o.x === x0 && o.y === y0)))
+        return false;
     }
     return true;
   }
@@ -556,6 +557,8 @@
       run.flags.bossDead = true;
       fireEvent(run, 'bossKill', {});
       rm.objects.push({ id: 'o' + run.nextId++, kind: 'objective', x: e.x, y: e.y });
+      const rift = freeNear(run, e.x + 1, e.y);
+      if (rift) rm.objects.push({ id: 'o' + run.nextId++, kind: 'portal', rift: true, x: rift[0], y: rift[1] });
       say(run, REGIONS[run.regionId].objective.name + '이(가) 드러났다. 회수하고 귀환문으로 돌아가자.');
     }
     rm.enemies = rm.enemies.filter(x => x !== e);
@@ -654,6 +657,68 @@
   }
 
   // 밀기/끌기. dir: 단위 벡터. 충돌·지형·덫을 처리한다.
+  /* 던전 기믹(방 소품): 폭발통 barrel · 밀 수 있는 상자 crate · 레버 lever + 잠든 가시(타일 's').
+     - 폭발통: 적을 밀어 부딪히게 하거나 전투 중 불을 붙이면(다음 적 턴 시작에) 십자 1칸에 피해. 나도, 다른 통도 휘말린다.
+     - 상자: 한 칸 밀 수 있고 시야를 막는다(사수 엄폐). 밀린 적이 부딪히면 벽과 같다.
+     - 레버: 방의 위험 지형(h)과 잠든 가시(s)를 서로 뒤집는다. 솟는 가시 위에 서 있던 쪽은 지형 피해. */
+  function explodeBarrel(run, o) {
+    const rm = room(run),
+      h = run.hero;
+    if (!rm.objects.includes(o)) return;
+    rm.objects = rm.objects.filter(x => x !== o);
+    const tiles = plus(o.x, o.y),
+      hit = (x, y) => tiles.some(t => t[0] === x && t[1] === y);
+    ev(run, { t: 'blast', tiles, kind: 'fire' });
+    ev(run, { t: 'shake' });
+    say(run, '폭발통이 터졌다!');
+    for (const e of alive(rm).slice()) if (hit(e.x, e.y)) hurtEnemy(run, e, calcDamage(run, e, RULES.gimmick.barrelDmg, {}), 'burn');
+    if (run.status === 'active' && hit(h.x, h.y)) hurtHero(run, RULES.gimmick.barrelDmg, {});
+    for (const b of rm.objects.filter(x => x.kind === 'barrel' && hit(x.x, x.y))) explodeBarrel(run, b);
+  }
+  function fusedBarrels(run) {
+    for (const o of room(run).objects.filter(x => x.kind === 'barrel' && x.fuse)) if (run.status === 'active') explodeBarrel(run, o);
+  }
+  function pushSpot(run, o) {
+    // 상자가 밀려갈 칸(영웅 반대쪽). 막혀 있으면 null
+    const rm = room(run),
+      h = run.hero,
+      nx = o.x + (o.x - h.x),
+      ny = o.y + (o.y - h.y),
+      t = tile(rm, nx, ny);
+    if (
+      Math.abs(o.x - h.x) + Math.abs(o.y - h.y) !== 1 ||
+      solid(t) ||
+      t === 'D' ||
+      !inRoom(nx, ny) ||
+      objAt(rm, nx, ny) ||
+      enemyAt(rm, nx, ny)
+    )
+      return null;
+    return [nx, ny];
+  }
+  function pullLever(run, o) {
+    const rm = room(run),
+      h = run.hero,
+      hz = hazard(run),
+      risen = [];
+    rm.tiles = rm.tiles.map((row, y) =>
+      row
+        .split('')
+        .map((c, x) => {
+          if (c === 's') risen.push([x, y]);
+          return c === 's' ? 'h' : c === 'h' ? 's' : c;
+        })
+        .join('')
+    );
+    o.on = !o.on;
+    ev(run, { t: 'shake' });
+    say(run, '레버를 당겼다. ' + hz.name + (risen.length ? '이(가) 솟아올랐다.' : '이(가) 가라앉았다.'));
+    if (!hz.dmg) return;
+    if (risen.length) ev(run, { t: 'blast', tiles: risen, kind: hz.id });
+    for (const e of alive(rm).slice())
+      if (risen.some(t => t[0] === e.x && t[1] === e.y)) hurtEnemy(run, e, hz.dmg + slamBonus(run), 'hazard');
+    if (run.status === 'active' && risen.some(t => t[0] === h.x && t[1] === h.y)) hurtHero(run, hz.dmg, {});
+  }
   function shoveEnemy(run, e, dx, dy, steps, isPull) {
     const rm = room(run),
       d = edef(e);
@@ -673,6 +738,7 @@
           ev(run, { t: 'shake' });
           hurtEnemy(run, e, 3 + slamBonus(run), 'slam');
           if (other) hurtEnemy(run, other, 2, 'slam');
+          if (o && o.kind === 'barrel') explodeBarrel(run, o);
           if (e.hp > 0 && !d.boss && d.ai === 'heavy') {
             e.armor = 0;
             addStatus(run, e, 'stun', 1);
@@ -715,6 +781,10 @@
         if (!isPull) {
           extra += 3 + slamBonus(run);
           note = '충돌';
+          if (o && o.kind === 'barrel') {
+            extra += RULES.gimmick.barrelDmg;
+            note = '폭발통';
+          }
         }
         break;
       }
@@ -1406,6 +1476,8 @@
   function enemyPhase(run) {
     const rm = room(run);
     run.stats.rounds++;
+    fusedBarrels(run);
+    if (run.status !== 'active') return;
     for (const e of alive(rm).slice()) {
       // 상태이상 피해
       if (e.st.burn) {
@@ -2149,6 +2221,32 @@
             ')가 지키고 있다 — 처치하거나 ' +
             RULES.level.guardRadius +
             '칸 밖으로 떼어내자';
+    if (o.kind === 'barrel')
+      out.push({
+        method: 'ignite',
+        label: '폭발통에 불붙이기 — 다음 적 턴이 시작될 때 폭발(십자 1칸, 피해 ' + RULES.gimmick.barrelDmg + ')',
+        cost: '주 행동',
+        note: '적을 밀어 통에 부딪히게 해도 터진다',
+        blocked: o.fuse ? '이미 불이 붙었다 — 물러나자' : combat ? null : '전투 중에만 불을 붙일 수 있다'
+      });
+    if (o.kind === 'crate')
+      out.push({
+        method: 'push',
+        label: '상자 밀기 — 시야를 막는 엄폐물',
+        cost: combat ? '이동 1' : '무료',
+        blocked: !pushSpot(run, o) ? '맞은편이 막혀 있다(옆에서 밀어 보자)' : combat && run.hero.mp < 1 ? '이동력이 없다' : null
+      });
+    if (o.kind === 'lever') {
+      const n = room(run)
+        .tiles.join('')
+        .split('')
+        .filter(c => c === 's' || c === 'h').length;
+      out.push({
+        method: 'lever',
+        label: '레버 당기기 — ' + hazard(run).name + ' ' + n + '칸이 뒤집힌다(솟은 곳은 가라앉고, 잠든 곳은 솟는다)',
+        cost: combat ? '보조 행동' : '시간 1'
+      });
+    }
     if (o.kind === 'objective') out.push({ method: 'objective', label: REGIONS[run.regionId].objective.name + ' 회수', cost: '무료' });
     if (o.kind === 'pile') out.push({ method: 'pile', label: '바닥의 물품 줍기', cost: '무료' });
     if (o.kind === 'portal') {
@@ -2213,6 +2311,7 @@
         else advance(run, n);
       };
     if (opt.cost === '주 행동' && h.main < 1) return { ok: false, reason: '주 행동을 이미 썼다' };
+    if (opt.cost === '보조 행동' && h.bonus < 1) return { ok: false, reason: '보조 행동을 이미 썼다' };
     face(run, o.x, o.y);
     if (a.method === 'gather') {
       if (opt.full) return { ok: false, reason: '가방에 ' + MATERIALS[o.mat].name + ' 자리가 없다. 가방(B)에서 비우거나 그대로 두자.' };
@@ -2276,6 +2375,22 @@
         h.focusBonus += 1;
         ev(run, { t: 'dmg', id: 'hero', x: h.x, y: h.y, n, kind: 'heal' });
       } else advance(run, ALTAR.fail.time);
+    } else if (a.method === 'ignite') {
+      h.main -= 1;
+      o.fuse = true;
+      ev(run, { t: 'text', x: o.x, y: o.y, text: '치익…' });
+      say(run, '폭발통에 불을 붙였다. 다음 적 턴이 시작될 때 터진다 — 물러나자.');
+    } else if (a.method === 'push') {
+      const [nx, ny] = pushSpot(run, o);
+      if (combat) h.mp -= 1;
+      o.x = nx;
+      o.y = ny;
+      ev(run, { t: 'attack', who: 'hero', tx: nx, ty: ny, anim: 'attack' });
+      say(run, '상자를 밀었다.');
+    } else if (a.method === 'lever') {
+      if (combat) h.bonus -= 1;
+      else advance(run, 1);
+      pullLever(run, o);
     } else if (a.method === 'objective') {
       run.flags.objective = true;
       rm.objects = rm.objects.filter(x => x !== o);
@@ -2417,6 +2532,51 @@
     }
     return { ok: true };
   }
+  /* 가 본 방으로 자동 이동(지도에서 누른다). 걸어가는 것과 똑같이 문마다 시간이 들고, 적에게 들키거나 이벤트가 뜨면 그 방에서 멈춘다.
+     탐사 중에만, 가 본 방끼리 이어진 길로만 간다(봉인된 문 제외). */
+  function roomRoute(run, to) {
+    const open = (rm, d) => !(rm.doors[d].sealed && run.devicesOn < run.devicesNeed),
+      prev = new Map([[run.roomId, null]]),
+      q = [run.roomId];
+    while (q.length) {
+      const id = q.shift();
+      if (id === to) break;
+      for (const [d, door] of Object.entries(run.rooms[id].doors))
+        if (open(run.rooms[id], d) && run.rooms[door.to].visited && !prev.has(door.to)) (prev.set(door.to, [id, d]), q.push(door.to));
+    }
+    if (!prev.has(to)) return null;
+    const path = [];
+    for (let at = to; prev.get(at); at = prev.get(at)[0]) path.unshift(prev.get(at)[1]);
+    return path;
+  }
+  function doTravel(run, a) {
+    if (run.mode !== 'explore') return { ok: false, reason: '전투 중에는 자동 이동을 할 수 없다' };
+    const to = run.rooms[a.to];
+    if (!to || !to.visited) return { ok: false, reason: '아직 가 보지 않은 방' };
+    if (to.id === run.roomId) return { ok: false, reason: '이미 이 방에 있다' };
+    const route = roomRoute(run, to.id);
+    if (!route) return { ok: false, reason: '가 본 방으로 이어진 길이 없다' };
+    let steps = 0;
+    for (const dir of route) {
+      transition(run, dir);
+      steps++;
+      if (run.status !== 'active' || run.mode !== 'explore' || run.pendingEvent || run.pendingDraft) break;
+    }
+    return { ok: true, steps, arrived: run.roomId === to.id };
+  }
+  function travelInfo(run, toId) {
+    const route = run.mode === 'explore' && run.rooms[toId]?.visited && toId !== run.roomId ? roomRoute(run, toId) : null;
+    return route ? { rooms: route.length, time: route.length * RULES.time.door } : null;
+  }
+  function doRecall(run) {
+    if (!run.items.recall) return { ok: false, reason: '귀환석이 없다' };
+    if (run.mode !== 'explore') return { ok: false, reason: '전투 중에는 귀환석을 쓸 수 없다' };
+    run.items.recall -= 1;
+    run.status = 'extracted';
+    say(run, '귀환석이 빛나며 길드로 돌아왔다.');
+    ev(run, { t: 'extract' });
+    return { ok: true };
+  }
   function act(run, a) {
     if (run.status !== 'active') return { ok: false, reason: '원정이 끝났다' };
     const h = run.hero;
@@ -2433,6 +2593,12 @@
     if (a.t === 'event') return doEvent(run, a);
     if (run.pendingDraft && a.t !== 'draft') return { ok: false, reason: '발견한 카드를 먼저 고르세요' };
     switch (a.t) {
+      case 'travel':
+        r = doTravel(run, a);
+        break;
+      case 'recall':
+        r = doRecall(run);
+        break;
       case 'draft':
         r = doDraft(run, a);
         break;
@@ -2575,6 +2741,7 @@
   }
   function allThreat(run) {
     const s = new Map();
+    for (const o of room(run).objects) if (o.kind === 'barrel' && o.fuse) for (const [x, y] of plus(o.x, o.y)) s.set(key(x, y), [x, y]);
     for (const e of alertIn(room(run))) {
       if (e.intent?.tiles?.length || e.st.stun) continue;
       for (const [x, y] of threatTiles(run, e)) s.set(key(x, y), [x, y]);
@@ -2659,7 +2826,9 @@
     weapon,
     stackOf,
     gearSum,
-    evHave
+    evHave,
+    travelInfo,
+    pushSpot
   };
   if (typeof module === 'object') module.exports = ER;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

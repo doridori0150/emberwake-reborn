@@ -42,7 +42,8 @@
     "focusrod": { "name": "수지 촉매봉", "slot": "weapon", "heroes": ["lumi"], "tier": 1, "icon": "town.icon_focusrod", "cost": { "wood": 2, "resin": 2 }, "weapon": { "dice": "1d6+1", "name": "촉매탄" }, "options": ["keen", "weighted"], "optionSlots": 1 },
     "starstaff": { "name": "별빛 지팡이", "slot": "weapon", "heroes": ["lumi"], "tier": 2, "icon": "town.icon_starstaff", "cost": { "wood": 3, "crystal": 2 }, "weapon": { "dice": "2d4", "range": 4, "name": "별빛탄" }, "options": ["keen", "weighted"], "optionSlots": 2 },
     "framepack": { "name": "뼈대 배낭", "slot": "bag", "tier": 2, "icon": "town.icon_framepack", "cost": { "hide": 3, "wood": 3, "coal": 1 }, "bag": 4, "options": ["pouch_ore", "pouch_herb", "reinforced"], "optionSlots": 2 },
-    "expedition": { "name": "원정대 등짐", "slot": "bag", "tier": 3, "icon": "town.icon_expedition_pack", "cost": { "hide": 4, "crystal": 2, "relic": 1 }, "bag": 6, "stackAll": 1, "options": ["pouch_ore", "pouch_herb", "reinforced"], "optionSlots": 3 }
+    "expedition": { "name": "원정대 등짐", "slot": "bag", "tier": 3, "icon": "town.icon_expedition_pack", "cost": { "hide": 4, "crystal": 2, "relic": 1 }, "bag": 6, "stackAll": 1, "options": ["pouch_ore", "pouch_herb", "reinforced"], "optionSlots": 3 },
+    "recallstone": { "name": "귀환석", "slot": "trinket", "tier": 1, "icon": "gear.signal", "cost": { "resin": 2, "relic": 1 }, "recall": 1, "text": "원정당 1회, 탐사 중 어디서든 바로 길드로 귀환한다(전투 중에는 쓸 수 없다)." }
   },
   "craftOptions": {
     "keen": { "name": "날 세우기", "slots": ["weapon"], "cost": { "ore": 2 }, "effects": { "bonus": 1 } },

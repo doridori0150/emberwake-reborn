@@ -1631,6 +1631,7 @@
     }
     if (r.items.bandage) basic('붕대 ×' + r.items.bandage, 'H', () => doAct({ t: 'item', id: 'bandage' }), combat && h.bonus < 1);
     if (r.items.flare) basic('섬광 ×' + r.items.flare, 'J', () => doAct({ t: 'item', id: 'flare' }), !combat || h.bonus < 1);
+    if (r.items.recall) basic('귀환석 ×' + r.items.recall, 'K', useRecall, combat);
     // 손패
     const hand = $('#hand');
     hand.innerHTML = '';
@@ -2038,6 +2039,18 @@
     }
     doAct({ t: 'move', x: t.x, y: t.y });
   }
+  async function useRecall() {
+    const r = run();
+    if (!r?.items.recall || r.mode !== 'explore') return toast('귀환석은 탐사 중에만 쓸 수 있습니다.');
+    if (
+      await ask(
+        '귀환석 사용',
+        '지금 자리에서 바로 길드로 귀환합니다. 가방의 전리품은 그대로 가져갑니다. (원정당 ' + r.items.recall + '회 남음)',
+        '귀환한다'
+      )
+    )
+      doAct({ t: 'recall' });
+  }
   function openMap() {
     const r = run(),
       shown = new Map();
@@ -2120,8 +2133,29 @@
         (RUN.alive(rm).length && rm.visited ? ' · 적 ' + RUN.alive(rm).length : '') +
         '</small></div>';
     }
-    html += '</div><div class="row"><button id="mapClose" class="primary" type="button">닫기 <kbd>M</kbd></button></div>';
-    modal(html).querySelector('#mapClose').onclick = closeModal;
+    html +=
+      '</div><div class="row"><span id="mapHint" class="src" style="flex:1"></span><button id="mapClose" class="primary" type="button">닫기 <kbd>M</kbd></button></div>';
+    const box = modal(html);
+    box.querySelector('#mapClose').onclick = closeModal;
+    // 가 본 방을 누르면 그 방까지 자동으로 걸어간다(문마다 시간이 드는 것은 같다). 규칙은 run.travelInfo / act({t:'travel'}).
+    const rooms = [...shown.values()],
+      cells = box.querySelectorAll('.mroom'),
+      hint = box.querySelector('#mapHint');
+    hint.textContent = r.mode === 'explore' ? '가 본 방을 누르면 그 방으로 이동합니다.' : '전투 중에는 자동 이동을 할 수 없습니다.';
+    rooms.forEach((rm, i) => {
+      const info = RUN.travelInfo(r, rm.id),
+        cell = cells[i];
+      if (!info || !cell) return;
+      cell.classList.add('go');
+      cell.title = '이동: 방 ' + info.rooms + '개 · 시간 ' + info.time;
+      cell.onmouseenter = () =>
+        (hint.textContent =
+          rm.name + '(으)로 이동 — 방 ' + info.rooms + '개를 지나고 시간 ' + info.time + '이 든다. 적에게 들키면 그 방에서 멈춘다.');
+      cell.onclick = () => {
+        closeModal();
+        doAct({ t: 'travel', to: rm.id });
+      };
+    });
   }
   function openBag() {
     const r = run(),
@@ -2240,6 +2274,7 @@
     if (low === 'r') return select({ kind: 'discard' });
     if (low === 'h' && r.items.bandage) return doAct({ t: 'item', id: 'bandage' });
     if (low === 'j' && r.items.flare) return doAct({ t: 'item', id: 'flare' });
+    if (low === 'k' && r.items.recall) return useRecall();
     if (low === 'v') {
       showThreat = !showThreat;
       toast(showThreat ? '위협 범위 표시 켬 — 주황 모서리 칸은 다음 적 턴에 공격이 닿을 수 있다' : '위협 범위 표시 끔');

@@ -130,7 +130,7 @@
           ny = y + dy,
           k = key(nx, ny),
           t = room.tiles[ny]?.[nx];
-        if (seen.has(k) || !t || t === '#' || t === 'o' || (avoidHazard && t === 'h') || blocked.has(k)) continue;
+        if (seen.has(k) || !t || t === '#' || t === 'o' || (avoidHazard && (t === 'h' || t === 's')) || blocked.has(k)) continue;
         seen.add(k);
         q.push([nx, ny]);
       }
@@ -225,6 +225,7 @@
     for (const o of objs) {
       if (o.kind === 'node' && !ER.data.MATERIALS[o.mat]) err('모르는 재료: ' + o.mat);
       if (o.kind === 'chest' && !ER.data.CHESTS[o.chest]) err('모르는 상자: ' + o.chest);
+      if (o.kind === 'lever' && !/[hs]/.test(hm.tiles.join(''))) err('레버가 있는데 뒤집을 위험 지형·잠든 가시가 없다');
       if (o.guarded) {
         const gs = foes.filter(e => e.post);
         if (!gs.length) err((o.mat || o.kind) + ': 경비 표시가 있는데 경비(post) 적이 없다');
@@ -280,7 +281,7 @@
         o.chest = src.chest || 'basic';
         o.opened = false;
       }
-      if (src.kind === 'device') o.on = false;
+      if (src.kind === 'device' || src.kind === 'lever') o.on = false;
       if (src.kind === 'camp' || src.kind === 'altar') o.used = false;
       if (src.guarded && guards.length) o.guards = guards.slice();
       return o;
@@ -521,6 +522,44 @@
           }
         }
       }
+      // 5-1) 기믹: 적이 있는 방에 하나. 폭발통은 경비 곁(밀어 넣을 자리), 상자는 사수와 문 사이(엄폐), 레버는 입구 쪽 + 가시를 잠재운다.
+      const GIM = ER.data.RULES.gimmick;
+      if (!safe && !simple && !boss && room.enemies.length && R.next(rs, 'map') < GIM.chance) {
+        const hazards = [];
+        for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (grid[y][x] === 'h') hazards.push([x, y]);
+        const shooter = room.enemies.find(e => ENEMIES[e.kind].range),
+          kinds = ['barrel'].concat(shooter ? ['crate'] : [], hazards.length >= 2 ? ['lever'] : []),
+          kind = R.pick(rs, 'map', kinds),
+          around = (cx, cy, r) => {
+            const c = [];
+            for (let y = 1; y < H - 1; y++)
+              for (let x = 1; x < W - 1; x++)
+                if (isFree(x, y) && !edge(x, y) && md(x, y, [cx, cy]) <= r && doorDist(x, y) >= 2) c.push([x, y]);
+            return c;
+          };
+        if (kind === 'barrel') {
+          const g = R.pick(rs, 'map', room.enemies),
+            spots = around(g.x, g.y, 1);
+          if (spots.length) {
+            const q = R.pick(rs, 'map', spots);
+            putAt({ kind: 'barrel' }, q[0], q[1]);
+          }
+        } else if (kind === 'crate') {
+          const door = doorsIn[0] || [6, 4],
+            spots = around(Math.round((door[0] + shooter.x) / 2), Math.round((door[1] + shooter.y) / 2), 1);
+          if (spots.length) {
+            const q = R.pick(rs, 'map', spots);
+            putAt({ kind: 'crate' }, q[0], q[1]);
+          }
+        } else {
+          const spots = edges.filter(e => isFree(e[0], e[1]) && doorDist(e[0], e[1]) >= 2 && doorDist(e[0], e[1]) <= 4);
+          if (spots.length) {
+            const q = R.pick(rs, 'map', spots);
+            putAt({ kind: 'lever', on: false }, q[0], q[1]);
+            for (const [x, y] of hazards) grid[y][x] = 's';
+          }
+        }
+      }
       // 6) 흔한 재료: 입구 쪽 벽가(목표 지점에서 먼 곳)
       for (const n of common) {
         const c = edges
@@ -584,6 +623,11 @@
     const leafNeed = region.types.filter(t => t === 'vault' || t === 'deep').length + 1;
     const { rooms, at } = layout(rs, region.rooms, Math.min(leafNeed, 2));
     assignTypes(rs, region, rooms);
+    // 도구의 시험 플레이: 이번 미궁에 그 방 종류가 안 뽑혔으면(예: 회랑의 hall) 입구·성소가 아닌 방 하나를 그 종류로 바꾼다.
+    if (opts.force && region.rooms_def[opts.force.type] && !rooms.some(r => r.type === opts.force.type)) {
+      const swap = rooms.find(r => r.type !== 'entry' && r.type !== 'sanctum');
+      if (swap) swap.type = opts.force.type;
+    }
     if (region.rank >= 2) {
       // 고리 1개: 성소를 제외한 이웃 방끼리 잇는다.
       const pairs = [];

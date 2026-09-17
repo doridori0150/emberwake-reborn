@@ -20,6 +20,7 @@
     bagSlots: 6,
     gearSlots: 2,
     shop: { slots: 2, customers: 4, cheap: 0.75, fair: 1.0, high: 1.15, quickSell: 0.6, demandDrop: 0.05, demandRecover: 0.2 }, // 가게: 기본 진열 칸·손님 수, 반응 기준(가격÷손님이 생각한 값), 급매 비율, 수요 하락·회복
+    gimmick: { chance: 0.5, barrelDmg: 5 }, // 던전 기믹: 적이 있는 방에 기믹이 놓일 확률, 폭발통 피해
     level: { guardRadius: 3, patrolDoorDist: 3, hazardMax: 3, handmade: 0.4 }, // 방 구성: 경비 반경, 순찰로와 문 사이 거리, 방당 경비 옆 위험 지형 수, 수제 방이 있을 때 쓰는 확률
     guardBlock: 3,
     ambushBonus: 2,
@@ -1223,7 +1224,8 @@
     slam: '충돌·지형 피해 +',
     status: '턴 첫 화상·중독 +',
     exposedBonus: '빈틈 적 피해 +',
-    flare: '섬광(원정당 횟수)'
+    flare: '섬광(원정당 횟수)',
+    recall: '귀환석(원정당 횟수)'
   };
   const CRAFT_OPTIONS = {}; // 제작 옵션: { name, slots:[...], cost:{}, effects:{} }. content.js 에서 채운다.
   const effectText = fx =>

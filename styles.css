@@ -124,3 +124,5 @@ label.opt { display:flex; gap:8px; align-items:center; margin:8px 0; }
 @media (max-width:1040px) { .brand small { display:none; } .moon { min-width:0; gap:5px; } .moon .gauge { width:80px; } .topbar { gap:8px; padding:0 8px; } .topbar kbd { display:none; } .topbar button { padding:6px 7px; } .turnbanner { max-width:30vw; overflow:hidden; text-overflow:ellipsis; } .hud { max-width:200px; font-size:.82rem; } }
 @media (max-width:820px) { :root { font-size:13px; } .actionbar { height:138px; } .card { flex-basis:100px; } .basics { width:112px; } .hud { max-width:180px; font-size:.8rem; } .moon { min-width:0; } .moon .gauge { width:90px; } .topbar { gap:8px; padding:0 8px; } .topbar kbd { display:none; } }
 @media (max-height:640px) { .actionbar { height:124px; } .card .txt { font-size:.68rem; } }
+
+.mroom.go { cursor:pointer; } .mroom.go:hover { border-color:var(--amber); box-shadow:0 0 0 2px rgba(240,165,69,.35); }

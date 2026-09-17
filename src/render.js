@@ -378,6 +378,16 @@
           }
           if (t === 'D') this.door(ctx, run, x, y);
           if (t === 'h') this.hazard(ctx, reg.hazard.id, px, py, now);
+          if (t === 's') {
+            // 잠든 가시: 레버를 당기면 솟는 자리. 바닥의 구멍 무늬로만 보인다.
+            ctx.strokeStyle = 'rgba(224,96,90,.45)';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([4, 4]);
+            ctx.strokeRect(px + 6, py + 6, T - 12, T - 12);
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(20,12,12,.55)';
+            for (let i = 0; i < 9; i++) ctx.fillRect(px + 14 + (i % 3) * 16, py + 14 + Math.floor(i / 3) * 16, 5, 5);
+          }
         }
       // 이동 가능 칸·사거리·경로
       if (ov.reach)
@@ -750,9 +760,34 @@
           ctx.fillStyle = 'rgba(0,0,0,.5)';
           ctx.fillRect(cx - 26, by - 50, 52, 50);
         } else if (o.chest !== 'basic' && !o.opened) this.label(ctx, cx, by - 56, '봉인', '#d6b3ff');
+      } else if (o.kind === 'barrel') {
+        // 폭발통: 상자 그림에 붉은 빛. 불이 붙으면 깜박인다.
+        ctx.save();
+        ctx.filter = 'hue-rotate(-25deg) saturate(1.9)' + (o.fuse && Math.floor(now / 160) % 2 ? ' brightness(1.7)' : '');
+        gfx.drawFit(ctx, 'decor.crate', cx, by, 46, 46);
+        ctx.restore();
+        this.label(ctx, cx, by - 52, o.fuse ? '곧 폭발!' : '폭발통', o.fuse ? '#ff8f7a' : '#f3c77e');
+      } else if (o.kind === 'crate') {
+        tileFrame('prop.crate', 1.05);
+      } else if (o.kind === 'lever') {
+        // 레버: 받침 + 손잡이(당긴 쪽으로 기운다)
+        const lean = o.on ? 14 : -14;
+        ctx.fillStyle = '#4a4339';
+        ctx.fillRect(cx - 16, by - 12, 32, 10);
+        ctx.strokeStyle = '#c9a35a';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(cx, by - 10);
+        ctx.lineTo(cx + lean, by - 40);
+        ctx.stroke();
+        ctx.fillStyle = '#e0605a';
+        ctx.beginPath();
+        ctx.arc(cx + lean, by - 42, 6, 0, 7);
+        ctx.fill();
+        this.label(ctx, cx, by - 58, '레버', '#f3c77e');
       } else if (o.kind === 'portal') {
         tileFrame('prop.portal', 1.7);
-        this.label(ctx, cx, by - 96, '귀환문', '#ffe27a');
+        this.label(ctx, cx, by - 96, o.rift ? '귀환 균열' : '귀환문', '#ffe27a');
       } else if (o.kind === 'device') {
         ctx.save();
         if (!o.on) ctx.filter = 'grayscale(.8) brightness(.8)';

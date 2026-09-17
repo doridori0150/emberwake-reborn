@@ -1451,6 +1451,8 @@
     ['time.door', '방 이동 시간', 0, 6],
     ['time.chest', '상자 시간', 0, 6],
     ['time.rest', '휴식 시간', 0, 10],
+    ['gimmick.chance', '기믹이 놓일 확률(0~1)', 0, 1, 0.05],
+    ['gimmick.barrelDmg', '폭발통 피해', 1, 20],
     ['shop.slots', '가게 기본 진열 칸', 1, 6],
     ['shop.customers', '가게 기본 손님 수', 1, 20],
     ['shop.cheap', '횡재 기준(가격÷값)', 0.3, 1, 0.05],
