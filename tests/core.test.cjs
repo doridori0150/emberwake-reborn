@@ -246,3 +246,29 @@ test('레벨 구성: 상자·장치·특산 재료는 경비가 지키고, 경�
   assert.ok(RUN.interactions(run, rm.objects[0])[0].blocked); assert.equal(RUN.act(run, { t: 'interact', id: 'oC', method: 'open' }).ok, false); assert.ok(!RUN.interactions(run, rm.objects[1])[0].blocked, '경비 없는 재료는 자유');
   g.x = 9; assert.ok(!RUN.interactions(run, rm.objects[0])[0].blocked, '멀리 떼어내면 열 수 있다'); g.x = 6; g.hp = 0; assert.ok(RUN.act(run, { t: 'interact', id: 'oC', method: 'open' }).ok, '처치하면 열 수 있다');
 });
+
+test('적 특성(데이터 조립): 자폭·분열·정면 방패·지휘·격앙·재생·저주·소매치기·둥지', () => {
+  const D = ER.data, foe = (run, i = 0) => RUN.room(run).enemies[i];
+  for (const [k, d] of Object.entries(D.ENEMIES)) for (const id of Object.keys(d.traits || {})) { assert.ok(D.TRAITS[id], k + ': 모르는 특성 ' + id); assert.ok(D.TRAITS[id].text(d.traits[id])); } assert.ok(D.AI_TYPES[D.ENEMIES.nest.ai]);
+  let run = arena('ara', [['sporeling', 4, 4], ['goblin', 5, 4]]); foe(run).hp = 1; const p = RUN.preview(run, { t: 'attack', id: foe(run).id }); assert.match(p.dmg[0].note, /폭발 4/); const hp = run.hero.hp, g = foe(run, 1); RUN.act(run, { t: 'attack', id: foe(run).id }); assert.equal(run.hero.hp, hp - 4, '곁에서 잡으면 나도 맞는다'); assert.equal(g.hp, g.maxHp - 4, '곁의 적도 맞는다');
+  run = arena('ara', [['slag', 4, 4]]); foe(run).hp = 1; RUN.act(run, { t: 'attack', id: foe(run).id }); assert.deepEqual(RUN.room(run).enemies.map(e => e.kind), ['slaglet', 'slaglet']); assert.equal(run.mode, 'combat');
+  run = arena('ara', [['shieldman', 4, 4]]); const s = foe(run); s.facing = 'left'; assert.equal(RUN.armorOf(run, s), 2); const front = RUN.preview(run, { t: 'attack', id: s.id }).dmg[0].min; s.facing = 'right'; assert.equal(RUN.armorOf(run, s), 0); assert.equal(RUN.preview(run, { t: 'attack', id: s.id }).dmg[0].min, front + 2, '등 뒤에서는 제 피해');
+  run = arena('ara', [['wraith', 4, 4], ['banner', 5, 4]]); assert.equal(RUN.armorOf(run, foe(run)), 1); foe(run, 1).x = 9; assert.equal(RUN.armorOf(run, foe(run)), 0);
+  run = arena('ara', [['alpha', 4, 4]]); const a = foe(run), h0 = run.hero.hp; RUN.act(run, { t: 'end' }); const calm = h0 - run.hero.hp; a.hp = 5; const h1 = run.hero.hp; RUN.act(run, { t: 'end' }); assert.equal(h1 - run.hero.hp, calm + 2, '격앙 피해 +2');
+  run = arena('ara', [['banner', 9, 1]]); foe(run).hp = 5; RUN.act(run, { t: 'end' }); assert.equal(foe(run).hp, 6);
+  run = arena('ara', [['hexer', 7, 4]], { hand: ['guard_up', 'mend', 'focus'] }); RUN.act(run, { t: 'end' }); const n = run.deck.hand.length; RUN.act(run, { t: 'end' }); assert.equal(run.deck.hand.length, n + 2 - 1, '맞으면 손패 1장을 버린다(드로우 2)');
+  run = arena('ara', [['pilferer', 4, 4]]); run.gold = 20; RUN.act(run, { t: 'end' }); assert.equal(run.gold, 12); const t = foe(run); assert.equal(t.stolen, 8); assert.match(RUN.intentText(run, t), /달아나는/); RUN.act(run, { t: 'end' }); assert.ok(Math.abs(t.x - run.hero.x) + Math.abs(t.y - run.hero.y) >= 4, '멀어진다');
+  const keep = JSON.parse(JSON.stringify(RUN.strip(run))); t.hp = 1; t.x = run.hero.x + 1; t.y = run.hero.y; RUN.act(run, { t: 'attack', id: t.id }); assert.ok(run.gold >= 20, '잡으면 되찾는다'); keep.events = []; RUN.act(keep, { t: 'end' }); RUN.act(keep, { t: 'end' }); assert.equal(RUN.room(keep).enemies.length, 0); assert.equal(keep.gold, 12, '놓치면 잃는다'); assert.equal(keep.mode, 'explore');
+  run = arena('ara', [['nest', 9, 4]]); RUN.act(run, { t: 'end' }); RUN.act(run, { t: 'end' }); assert.deepEqual(RUN.room(run).enemies.map(e => e.kind), ['nest', 'inkling']); for (let i = 0; i < 8; i++) RUN.act(run, { t: 'guard' }) && RUN.act(run, { t: 'end' }); assert.ok(RUN.room(run).enemies.filter(e => e.kind === 'inkling').length <= 2);
+});
+
+test('수제 방·콘텐츠 파일: 검사 통과, 어떤 문 조합에서도 유효, 시험 플레이 강제 배치, 포맷 왕복', () => {
+  const C = ER.CONTENT, fmt = require('../src/contentfmt.js').contentfmt; assert.ok(C.rooms.length >= 5); assert.equal(fmt.check(C), null);
+  for (const hm of C.rooms) { assert.deepEqual(M.lintRoom(hm).filter(i => i.level === 'error'), [], hm.id);
+    for (const reg of hm.regions.length ? hm.regions : Object.keys(ER.data.REGIONS)) for (const doors of [['N'], ['E', 'W'], ['S', 'W', 'N'], ['N', 'E', 'S', 'W']]) { const room = { id: 1, type: hm.type, doors: Object.fromEntries(doors.map(d => [d, { to: 0 }])) }; assert.ok(M.applyRoom(ER.rng.seedStreams('hm' + doors.join('')), ER.data.REGIONS[reg], room, { n: 1 }, hm), hm.id + ' ' + doors); assert.ok(M.valid(room)); if (hm.type === 'sanctum') assert.equal(room.enemies[0].kind, ER.data.REGIONS[reg].boss); } }
+  const bad = JSON.parse(JSON.stringify(C.rooms[0])); bad.tiles[1] = '#.....o.....#'; assert.ok(M.lintRoom(bad).some(i => i.level === 'error' && /문 앞/.test(i.msg)));
+  const garden = C.rooms.find(r => r.type === 'garden'), noDev = JSON.parse(JSON.stringify(garden)); noDev.objects = noDev.objects.filter(o => o.kind !== 'device'); assert.ok(M.lintRoom(noDev).some(i => /봉인 장치/.test(i.msg)), '봉인 수가 어긋나는 방은 거부');
+  const hm = C.rooms.find(r => r.id === 'looted_store'), run = RUN.create({ regionId: 'verdant', heroId: 'ara', deck: ER.data.HEROES.ara.deck, seed: 'tp', testRoom: hm }); assert.equal(RUN.room(run).handmade, 'looted_store'); assert.ok(run.test); const chest = RUN.room(run).objects.find(o => o.kind === 'chest'); assert.equal(chest.guards.length, 2); assert.ok(RUN.room(run).enemies.some(e => e.patrol));
+  const text = fmt.text(C), sandbox = {}; new Function('globalThis', 'module', text.replace("typeof globalThis !== 'undefined' ? globalThis : this", 'globalThis'))(sandbox, undefined); assert.deepEqual(sandbox.ER.CONTENT, JSON.parse(JSON.stringify(C)), '포맷 왕복');
+  assert.ok(fmt.check({ enemies: { 'Bad Id': {} }, spawns: [], rooms: [] }));
+});

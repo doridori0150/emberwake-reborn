@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Emberwake Reborn — 콘텐츠 도구</title>
+<style>
+:root { --bg:#0e1113; --panel:#171c20; --panel2:#1f262b; --line:#2e383f; --ink:#e9e4d8; --dim:#9aa3a6; --amber:#f0a545; --teal:#5fc9b8; --red:#e0605a; --green:#8ecf72; --violet:#b79cf2; font-size:14px; }
+* { box-sizing:border-box; }
+html,body { margin:0; min-height:100%; background:var(--bg); color:var(--ink); font-family:"Pretendard","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif; }
+button,select,input,textarea { font:inherit; color:var(--ink); background:var(--panel2); border:1px solid var(--line); border-radius:6px; padding:4px 8px; }
+button { cursor:pointer; } button:hover:not(:disabled) { border-color:var(--amber); } button:disabled { opacity:.45; cursor:default; }
+button.primary { background:linear-gradient(#f4b25a,#d98a2f); color:#20140a; border-color:#ffd08a; font-weight:700; }
+button.danger { border-color:#7a3a36; color:#ffb3ad; } button.on { border-color:var(--amber); background:#3a2c17; }
+input[type=number] { width:64px; } input[type=checkbox] { width:auto; }
+:focus-visible { outline:2px solid var(--teal); outline-offset:1px; }
+header { position:sticky; top:0; z-index:5; display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 16px; background:var(--panel); border-bottom:1px solid var(--line); }
+header h1 { font-size:1.05rem; margin:0 12px 0 0; } header .grow { flex:1; } #status { color:var(--dim); font-size:.9rem; } #status.dirty { color:var(--amber); } #status.bad { color:var(--red); }
+main { padding:12px 16px 40px; } section[hidden] { display:none; }
+.bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; } .bar label { color:var(--dim); display:flex; gap:4px; align-items:center; }
+.cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(276px,1fr)); gap:10px; }
+.rc { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px; display:flex; flex-direction:column; gap:4px; } .rc.flag { border-color:var(--red); }
+.rc canvas { width:100%; height:auto; image-rendering:pixelated; border-radius:4px; background:#0a0d0f; } .rc h4 { margin:0; font-size:.92rem; display:flex; gap:6px; align-items:center; } .rc .sub { color:var(--dim); font-size:.82rem; }
+.badge { font-size:.72rem; padding:1px 6px; border-radius:9px; border:1px solid var(--line); color:var(--dim); } .badge.hm { color:var(--teal); border-color:var(--teal); } .badge.mod { color:var(--amber); border-color:var(--amber); } .badge.add { color:var(--green); border-color:var(--green); }
+.lint { margin:0; padding:0; list-style:none; font-size:.82rem; } .lint li { padding:1px 0; } .lint .error { color:#ff9c95; } .lint .warn { color:#f3c77e; } .lint .ok { color:var(--green); }
+.cols { display:grid; grid-template-columns:210px minmax(0,1fr) 300px; gap:12px; align-items:start; } @media (max-width:1100px) { .cols { grid-template-columns:1fr; } }
+.list { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px; max-height:78vh; overflow:auto; } .list button { display:flex; gap:6px; align-items:center; width:100%; text-align:left; border:0; background:transparent; padding:5px 6px; } .list button.sel { background:#3a2c17; } .list .grp { color:var(--dim); font-size:.78rem; padding:6px 6px 2px; }
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; } .panel h3 { margin:0 0 8px; font-size:.95rem; } .panel + .panel { margin-top:10px; }
+.form { display:grid; grid-template-columns:96px 1fr; gap:6px 8px; align-items:center; } .form label { color:var(--dim); } .form .wide { grid-column:1/-1; } .form input[type=text], .form textarea, .form select { width:100%; } textarea { min-height:48px; resize:vertical; }
+.tools { display:flex; flex-wrap:wrap; gap:4px; } .tools button { padding:4px 7px; }
+#edCanvas { width:100%; max-width:720px; height:auto; border-radius:6px; background:#0a0d0f; cursor:crosshair; display:block; }
+.row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; } .dim { color:var(--dim); } .small { font-size:.84rem; }
+table { border-collapse:collapse; width:100%; font-size:.88rem; font-variant-numeric:tabular-nums; } th,td { padding:4px 6px; border-bottom:1px solid var(--line); text-align:right; } th:first-child,td:first-child { text-align:left; } th { color:var(--dim); font-weight:500; }
+.trait { border:1px solid var(--line); border-radius:6px; padding:6px; margin-bottom:6px; } .trait .t { display:flex; justify-content:space-between; align-items:center; gap:6px; } .trait .d { color:var(--dim); font-size:.82rem; margin-top:3px; }
+#dlg { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:9; padding:16px; } #dlg[hidden] { display:none; } #dlg .box { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; width:min(860px,100%); max-height:90vh; display:flex; flex-direction:column; gap:8px; } #dlg textarea { flex:1; min-height:50vh; font-family:Consolas,monospace; font-size:.8rem; white-space:pre; }
+</style>
+</head>
+<body>
+<header>
+  <h1>콘텐츠 도구</h1>
+  <button data-tab="review" type="button">방 검수</button>
+  <button data-tab="rooms" type="button">방 에디터</button>
+  <button data-tab="foes" type="button">몬스터 작업대</button>
+  <span class="grow"></span>
+  <span id="status">불러오는 중…</span>
+  <button id="btnText" type="button">텍스트로 보기</button>
+  <button id="btnSave" class="primary" type="button">저장 (src/content.js)</button>
+  <a href="index.html" style="color:var(--dim)">게임으로</a>
+</header>
+<main>
+  <section id="tab-review" hidden></section>
+  <section id="tab-rooms" hidden></section>
+  <section id="tab-foes" hidden></section>
+</main>
+<div id="dlg" hidden><div class="box"><div class="row"><strong id="dlgTitle"></strong><span class="grow" style="flex:1"></span><button id="dlgCopy" type="button">복사</button><button id="dlgClose" type="button">닫기</button></div><div id="dlgNote" class="dim small"></div><textarea id="dlgText" readonly></textarea></div></div>
+<script src="src/asset-manifest.js"></script>
+<script src="src/rng.js"></script>
+<script src="src/content.js"></script>
+<script src="src/data.js"></script>
+<script src="src/mapgen.js"></script>
+<script src="src/run.js"></script>
+<script src="src/bot.js"></script>
+<script src="src/contentfmt.js"></script>
+<script src="src/audio.js"></script>
+<script src="src/render.js"></script>
+<script src="src/editor.js"></script>
+</body>
+</html>

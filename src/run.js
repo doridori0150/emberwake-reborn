@@ -20,7 +20,7 @@
     const gear = (o.gear || []).filter(id => GEAR[id]), perks = o.perks || [];
     const sum = f => gear.reduce((n, id) => n + (GEAR[id][f] || 0), 0);
     const rs = R.seedStreams(String(o.seed));
-    const map = M.generate(o.regionId, rs, { knowSanctum: mods.knowSanctum });
+    const map = M.generate(o.regionId, rs, { knowSanctum: mods.knowSanctum, force: o.testRoom || null });
     const maxHp = heroDef.hp + sum('hp') + mods.hpBonus + (perks.includes('ara_iron') ? 6 : 0);
     const run = {
       v: 1, id: 'run-' + o.seed, seed: String(o.seed), regionId: o.regionId, heroId: o.heroId, rng: rs, status: 'active', mode: 'explore', turn: 0,
@@ -37,6 +37,11 @@
     drawCards(run, RULES.startHand);
     run.rooms[0].visited = true; enterRoomEffects(run, run.rooms[0], true);
     reveal(run); say(run, region.name + '에 들어섰다. 붉은달까지 ' + run.limit + '.');
+    if (o.testRoom) { // 도구의 시험 플레이: 그 방의 문 앞에서 바로 시작한다.
+      const to = run.rooms.find(r => r.handmade === o.testRoom.id); if (!to) throw new Error('이 지역의 미궁에 방 종류 ' + o.testRoom.type + ' 이(가) 없거나 방 검사에 걸렸다');
+      if (to.id !== 0) { const dir = Object.keys(to.doors)[0], [ix, iy] = M.INSIDE[dir]; run.roomId = to.id; to.visited = true; to.known = true; Object.assign(run.hero, { x: ix, y: iy }); enterRoomEffects(run, to, true); reveal(run); if (alertIn(to).length) startCombat(run, false); else detect(run); }
+      run.test = true; say(run, '시험 플레이: ' + (to.name || to.type) + '. 저장되지 않는다.');
+    }
     return run;
   }
 
@@ -145,6 +150,17 @@
   // ───────── 피해
   function hasStatus(e) { return (e.st.burn || 0) + (e.st.poison || 0) + (e.st.root || 0) + (e.st.stun || 0) > 0; }
   // o: {direct, pierce, ambush, noFocus}. 미리보기와 실제 적용이 공유한다.
+  // 적 특성(data.TRAITS): 행동 유형 위에 얹는 조립식 부품. 수치는 전부 적 데이터의 traits 에서 읽는다.
+  const trait = (e, id) => edef(e).traits?.[id];
+  function armorOf(run, e) { // 기본 장갑 + 정면 방패 + 곁의 지휘관
+    let a = e.armor || 0; const f = trait(e, 'frontArmor'), h = run.hero;
+    if (f && !e.st.stun && ((e.facing === 'left' && h.x < e.x) || (e.facing === 'right' && h.x > e.x))) a += f.n;
+    const lead = alive(room(run)).find(o => o !== e && trait(o, 'aura') && dist(o, e) <= trait(o, 'aura').radius); if (lead) a += trait(lead, 'aura').armor;
+    return a;
+  }
+  const enraged = e => { const t = trait(e, 'enrage'); return t && e.hp <= e.maxHp * t.below / 100 ? t : null; };
+  const speedOf = e => edef(e).speed + (enraged(e)?.speed || 0);
+  function spawnNear(run, kind, x, y, extra) { const rm = room(run), spot = freeNear(run, x, y); if (!spot || !ENEMIES[kind]) return null; const s = M.makeEnemy(kind, spot[0], spot[1], { n: run.nextId++ }); Object.assign(s, { state: 'alert', summoned: true }, extra); rm.enemies.push(s); ev(run, { t: 'spawn', id: s.id }); return s; }
   function calcDamage(run, e, base, o = {}) {
     if (base <= 0) return 0; let n = base; const d = edef(e);
     if (o.direct) {
@@ -153,7 +169,7 @@
       if (o.ambush) n += RULES.ambushBonus + (hasPerk(run, 'noa_ambush') ? 3 : 0);
       if (e.st.exposed && gearSum(run, 'exposedBonus')) n += gearSum(run, 'exposedBonus');
     }
-    if (!o.pierce) n -= e.armor; n = Math.max(1, n);
+    if (!o.pierce) n -= armorOf(run, e); n = Math.max(1, n);
     if (d.cap) n = Math.min(n, d.cap);
     if (e.st.exposed) n += 2;
     return n;
@@ -171,6 +187,9 @@
     if (d.stalker) { run.stalker = { state: 'dead', at: run.time + 15 }; say(run, '추적자가 흩어졌다. 하지만 붉은달은 다시 그것을 빚어낼 것이다.'); }
     else if (d.boss) { run.flags.bossDead = true; rm.objects.push({ id: 'o' + (run.nextId++), kind: 'objective', x: e.x, y: e.y }); say(run, REGIONS[run.regionId].objective.name + '이(가) 드러났다. 회수하고 귀환문으로 돌아가자.'); }
     rm.enemies = rm.enemies.filter(x => x !== e);
+    if (e.stolen) { run.gold += e.stolen; ev(run, { t: 'loot', x: e.x, y: e.y, text: '되찾음 +' + e.stolen + ' 금화' }); say(run, '훔쳐 간 금화 ' + e.stolen + '을(를) 되찾았다.'); }
+    const sp = trait(e, 'split'); if (sp) { let n = 0; for (let i = 0; i < sp.n; i++) if (spawnNear(run, sp.into, e.x, e.y)) n++; if (n) say(run, d.name + '이(가) ' + ENEMIES[sp.into].name + ' ' + n + '마리로 갈라졌다.'); }
+    const ex = trait(e, 'explode'); if (ex) { const tiles = plus(e.x, e.y), h = run.hero; ev(run, { t: 'blast', tiles, kind: '포자 폭발' }); say(run, d.name + '이(가) 터졌다!'); for (const o of alive(rm).slice()) if (tiles.some(([x, y]) => x === o.x && y === o.y)) hurtEnemy(run, o, calcDamage(run, o, ex.dmg, {}), 'hit'); if (run.status === 'active' && tiles.some(([x, y]) => x === h.x && y === h.y)) hurtHero(run, ex.dmg, {}); }
   }
   function hurtHero(run, n, src) { // src: {melee, enemy}
     const h = run.hero; if (run.heroId === 'noa' && src?.melee && h.moved >= 3 && !h.dodged) { h.dodged = true; n = Math.max(0, n - 2); ev(run, { t: 'text', x: h.x, y: h.y, text: '회피 -2' }); } let absorbed = Math.min(h.block, n); h.block -= absorbed; const through = n - absorbed;
@@ -302,7 +321,7 @@
   }
 
   // ───────── 적 AI
-  const enemyDmg = (run, e) => Math.max(1, edef(e).dmg + (run.phase >= 2 ? 1 : 0) - (e.st.poison ? 1 : 0));
+  const enemyDmg = (run, e) => Math.max(1, edef(e).dmg + (run.phase >= 2 ? 1 : 0) - (e.st.poison ? 1 : 0) + (enraged(e)?.dmg || 0));
   function enemyPath(run, e, goalFn) { // BFS: 위험 지형·유닛·소품 회피. goalFn(x,y) 를 만족하는 가장 가까운 칸까지의 경로.
     const rm = room(run), seen = new Map([[key(e.x, e.y), null]]), q = [[e.x, e.y]]; let bestK = null, bestD = Infinity;
     while (q.length) {
@@ -326,7 +345,17 @@
     budget.total++; if (ranged) budget.ranged++;
     let dmg = Math.max(1, enemyDmg(run, e) + (mod || 0)); if (edef(e).ai === 'pack' && alive(room(run)).some(o => o !== e && o.kind === e.kind && dist(o, h) === 1)) dmg += 1;
     ev(run, { t: 'attack', who: e.id, tx: h.x, ty: h.y, anim: 'attack', ranged }); if (ranged) ev(run, { t: 'proj', fx: e.x, fy: e.y, tx: h.x, ty: h.y, kind: 'arrow' });
-    hurtHero(run, dmg, { melee: !ranged, enemy: e }); return true;
+    const through = hurtHero(run, dmg, { melee: !ranged, enemy: e });
+    if (through > 0 && run.status === 'active' && e.hp > 0) {
+      const hx = trait(e, 'hex'); if (hx) for (let i = 0; i < hx.n && run.deck.hand.length; i++) { const k = R.int(run.rng, 'ai', run.deck.hand.length), id = run.deck.hand.splice(k, 1)[0]; run.deck.discard.push(id); ev(run, { t: 'text', x: h.x, y: h.y, text: '저주: ' + CARDS[id].name + ' 버림' }); say(run, '저주에 걸려 ' + CARDS[id].name + '을(를) 버렸다.'); }
+      const th = trait(e, 'thief'); if (th && !e.stolen && run.gold > 0) { e.stolen = Math.min(run.gold, th.gold); run.gold -= e.stolen; e.flee = 2; ev(run, { t: 'text', x: h.x, y: h.y, text: '금화 -' + e.stolen }); say(run, d0(e).name + '이(가) 금화 ' + e.stolen + '을(를) 훔쳤다! 달아나기 전에 잡자.'); }
+    }
+    return true;
+  }
+  const d0 = e => edef(e);
+  function fleeStep(run, e) { // 소매치기: 2턴 동안 멀어진 뒤 사라진다.
+    const rm = room(run), h = run.hero; if (e.flee <= 0) { ev(run, { t: 'text', x: e.x, y: e.y, text: '달아났다' }); ev(run, { t: 'die', id: e.id }); say(run, edef(e).name + '이(가) 금화 ' + e.stolen + '을(를) 들고 달아났다.'); rm.enemies = rm.enemies.filter(x => x !== e); return; }
+    e.flee -= 1; for (let t = 9; t >= 2; t--) { const p = enemyPath(run, e, (x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) >= t); if (p.length) { const [lx, ly] = p[p.length - 1]; if (Math.abs(lx - h.x) + Math.abs(ly - h.y) >= t) { moveEnemy(run, e, p, speedOf(e)); break; } } }
   }
   function areaHit(run, e, tiles, dmg, label) { ev(run, { t: 'attack', who: e.id, tx: run.hero.x, ty: run.hero.y, anim: 'attack' }); ev(run, { t: 'blast', tiles, kind: label }); if (tiles.some(([x, y]) => x === run.hero.x && y === run.hero.y)) { say(run, edef(e).name + '의 ' + label + ' 적중!'); hurtHero(run, dmg, { enemy: e }); return true; } say(run, edef(e).name + '의 ' + label + '을(를) 피했다.'); return false; }
   const inRoom = (x, y) => x >= 1 && y >= 1 && x <= W - 2 && y <= H - 2;
@@ -337,20 +366,24 @@
   function actEnemy(run, e, budget) {
     const d = edef(e), h = run.hero, rm = room(run);
     if (e.st.stun) { ev(run, { t: 'text', x: e.x, y: e.y, text: '기절' }); return; }
+    const rg = trait(e, 'regen'); if (rg && e.hp < e.maxHp) { const n = Math.min(rg.n, e.maxHp - e.hp); e.hp += n; ev(run, { t: 'dmg', id: e.id, x: e.x, y: e.y, n, kind: 'heal' }); }
+    const sw = trait(e, 'spawner'); if (sw) { e.tick = (e.tick || 0) + 1; if (e.tick % sw.every === 0 && alive(rm).filter(o => o.parent === e.id).length < sw.max) { const s = spawnNear(run, sw.kind, e.x, e.y, { parent: e.id }); if (s) say(run, d.name + '에서 ' + ENEMIES[sw.kind].name + '이(가) 기어 나왔다.'); } }
+    if (e.flee != null) return fleeStep(run, e);
+    if (d.ai === 'none') return;
     const adj = () => dist(e, h) === 1, toHero = () => enemyPath(run, e, (x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) === 1);
-    if (d.ai === 'melee' || d.ai === 'pack') { if (!adj()) moveEnemy(run, e, toHero(), d.speed); if (e.hp > 0 && adj()) strike(run, e, budget, false); return; }
+    if (d.ai === 'melee' || d.ai === 'pack') { if (!adj()) moveEnemy(run, e, toHero(), speedOf(e)); if (e.hp > 0 && adj()) strike(run, e, budget, false); return; }
     if (d.ai === 'ranged') {
       const can = () => dist(e, h) <= d.range && los(rm, e, h);
       if (e.intent?.type === 'aim') { const ok = can(); e.intent = null; if (ok && strike(run, e, budget, true)) return; if (!ok) ev(run, { t: 'text', x: e.x, y: e.y, text: '조준 놓침' }); }
       if (adj()) moveEnemy(run, e, enemyPath(run, e, (x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) >= 3 && los(rm, { x, y }, h)), 2);
-      else if (!can()) moveEnemy(run, e, enemyPath(run, e, (x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) <= d.range && Math.abs(x - h.x) + Math.abs(y - h.y) >= 2 && los(rm, { x, y }, h)), d.speed);
+      else if (!can()) moveEnemy(run, e, enemyPath(run, e, (x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) <= d.range && Math.abs(x - h.x) + Math.abs(y - h.y) >= 2 && los(rm, { x, y }, h)), speedOf(e));
       if (e.hp > 0 && can()) { e.intent = { type: 'aim', dmg: enemyDmg(run, e), label: '조준' }; faceHero(run, e); ev(run, { t: 'text', x: e.x, y: e.y, text: '조준!' }); }
       return;
     }
     if (d.ai === 'caster') {
       if (e.intent?.type === 'area') { const it = e.intent; e.intent = null; areaHit(run, e, it.tiles, it.dmg, it.label); }
-      if (dist(e, h) < 3) moveEnemy(run, e, enemyPath(run, e, (x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) >= 3 && los(rm, { x, y }, h)), d.speed);
-      else if (!los(rm, e, h) || dist(e, h) > d.range + 1) moveEnemy(run, e, enemyPath(run, e, (x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) <= d.range && los(rm, { x, y }, h)), d.speed);
+      if (dist(e, h) < 3) moveEnemy(run, e, enemyPath(run, e, (x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) >= 3 && los(rm, { x, y }, h)), speedOf(e));
+      else if (!los(rm, e, h) || dist(e, h) > d.range + 1) moveEnemy(run, e, enemyPath(run, e, (x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) <= d.range && los(rm, { x, y }, h)), speedOf(e));
       if (e.hp <= 0) return; const see = los(rm, e, h) && dist(e, h) <= d.range + 1;
       if (e.step++ % 2 === 0 && see) { e.intent = { type: 'area', tiles: plus(h.x, h.y), dmg: enemyDmg(run, e), label: '저주 문양' }; faceHero(run, e); ev(run, { t: 'text', x: e.x, y: e.y, text: '문양을 새긴다' }); }
       else { const hurt = alive(rm).filter(o => o !== e && o.hp <= o.maxHp - 4).sort((a, b) => a.hp - b.hp)[0]; if (hurt) { hurt.hp = Math.min(hurt.maxHp, hurt.hp + 4); ev(run, { t: 'dmg', id: hurt.id, x: hurt.x, y: hurt.y, n: 4, kind: 'heal' }); } }
@@ -358,7 +391,7 @@
     }
     if (d.ai === 'heavy') {
       if (e.intent?.type === 'area') { const it = e.intent; e.intent = null; areaHit(run, e, it.tiles, it.dmg, it.label); return; }
-      if (!adj()) moveEnemy(run, e, toHero(), d.speed);
+      if (!adj()) moveEnemy(run, e, toHero(), speedOf(e));
       if (e.hp > 0 && adj()) { const [dx, dy] = [h.x - e.x, h.y - e.y]; const tiles = [[h.x, h.y], [h.x + dy, h.y + dx], [h.x - dy, h.y - dx]].filter(([x, y]) => inRoom(x, y)); e.intent = { type: 'area', tiles, dmg: enemyDmg(run, e), label: '내려찍기' }; faceHero(run, e); ev(run, { t: 'text', x: e.x, y: e.y, text: '무기를 치켜든다' }); }
       return;
     }
@@ -455,11 +488,12 @@
   function slotReason(run, slot) { if (run.mode !== 'combat') return null; if (slot === 'main' && run.hero.main < 1) return '주 행동을 이미 썼다'; if (slot === 'bonus' && run.hero.bonus < 1) return '보조 행동을 이미 썼다'; return null; }
 
   // 미리보기: RNG를 소비하지 않는다. {ok, reason, cost, dmg:[{id,min,max,kill}], tiles, text}
+  function killNote(run, e, d) { const ex = trait(e, 'explode'); if (d.kill && ex && dist(e, run.hero) <= 1) d.note = (d.note ? d.note + ' · ' : '') + '폭발 ' + ex.dmg + ' 받음'; return d; }
   function preview(run, a) {
     if (run.status !== 'active') return { ok: false, reason: '원정이 끝났다' };
     const h = run.hero, rm = room(run), ambush = run.mode === 'explore';
     if (a.t === 'move') { const p = pathTo(run, a.x, a.y); if (!p) return { ok: false, reason: '갈 수 없는 칸' }; if (run.mode === 'combat' && p.cost > h.mp) return { ok: false, reason: '이동력 부족(' + p.cost + '/' + h.mp + ')', path: p.path, cost: p.cost }; const hz = tile(rm, a.x, a.y) === 'h' && hazard(run).dmg; return { ok: true, path: p.path, cost: run.mode === 'combat' ? p.cost : 0, text: (run.mode === 'combat' ? '이동 ' + p.cost : '이동') + (hz ? ' · ' + hazard(run).name + ' 피해 ' + hazard(run).dmg : '') }; }
-    if (a.t === 'attack') { const atk = heroDef(run).attack, e = alive(rm).find(x => x.id === a.id), why = slotReason(run, 'main') || checkTarget(run, { range: atk.range, target: 'enemy' }, a); if (why) return { ok: false, reason: why }; const n = calcDamage(run, e, atk.dmg, { direct: true, ambush: ambush && e.state === 'idle' }), cc = critChance(run, e); return { ok: true, cost: '주 행동', crit: cc, dmg: [{ id: e.id, min: n, max: n, crit: cc ? critDamage(n) : null, kill: n >= e.hp }], text: atk.name + ' · 피해 ' + n }; }
+    if (a.t === 'attack') { const atk = heroDef(run).attack, e = alive(rm).find(x => x.id === a.id), why = slotReason(run, 'main') || checkTarget(run, { range: atk.range, target: 'enemy' }, a); if (why) return { ok: false, reason: why }; const n = calcDamage(run, e, atk.dmg, { direct: true, ambush: ambush && e.state === 'idle' }), cc = critChance(run, e); return { ok: true, cost: '주 행동', crit: cc, dmg: [killNote(run, e, { id: e.id, min: n, max: n, crit: cc ? critDamage(n) : null, kill: n >= e.hp })], text: atk.name + ' · 피해 ' + n }; }
     if (a.t === 'special') return previewSpecial(run, a);
     if (a.t === 'card') {
       const c = card(run, h && run.deck.hand[a.i]); if (!c) return { ok: false, reason: '카드 없음' };
@@ -477,7 +511,7 @@
         if (c.special === 'detonate' && list[0]) out.marks = alive(rm).filter(o => o !== list[0] && dist(o, list[0]) === 1).map(o => ({ id: o.id, text: '화상 +1' }));
         if (c.splashBurn && list[0]) out.marks = alive(rm).filter(o => o !== list[0] && dist(o, list[0]) === 1).map(o => ({ id: o.id, text: '화상 +' + c.splashBurn }));
         if (c.push || c.pull) out.dmg.filter(d => !d.note).forEach(d => { const e = alive(rm).find(x => x.id === d.id), pull = !!c.pull, dx = c.special === 'quake' ? e.x - h.x : Math.sign(pull ? h.x - e.x : e.x - h.x), dy = c.special === 'quake' ? e.y - h.y : Math.sign(pull ? h.y - e.y : e.y - h.y), f = shoveForecast(run, e, dx, dx ? 0 : dy, c.push || c.pull, pull, d.min); d.min += f.extra; d.max += f.extra; d.note = f.note; d.to = [f.x, f.y]; out.tiles.push([f.x, f.y]); });
-        out.dmg.forEach(d => { const e = alive(rm).find(x => x.id === d.id); d.kill = d.min >= e.hp; });
+        out.dmg.forEach(d => { const e = alive(rm).find(x => x.id === d.id); d.kill = d.min >= e.hp; killNote(run, e, d); });
       }
       if (c.special === 'vault' || c.special === 'snare') out.tiles = [[a.target.x, a.target.y]];
       out.text = c.name + (out.dmg.length ? ' · 피해 ' + out.dmg.map(d => d.min === d.max ? d.min : d.min + '~' + d.max).join(', ') : ''); return out;
@@ -586,7 +620,7 @@
   function nearbyObjects(run) { const h = run.hero; return room(run).objects.filter(o => o.kind !== 'trap' && Math.abs(o.x - h.x) + Math.abs(o.y - h.y) <= 1 && interactions(run, o).length); }
   function checkInfo(run, def) { const bonus = gearSum(run, 'check') + (hasPerk(run, 'noa_loot') ? 2 : 0) + run.hero.checkBonus, mode = run.hero.rollMode || 'normal'; return { formula: def.formula, dc: def.dc, bonus, mode, chance: ER.dice.chance(def.formula, def.dc, { bonus, mode }) }; }
   // 경비: 방을 만들 때 이 소품을 지키도록 배치된 적. 살아서 3칸 안에 있는 동안에는 손댈 수 없다(처치하거나 멀리 떼어낸다).
-  function guardsNear(run, o) { if (!o.guards?.length) return []; return alive(room(run)).filter(e => o.guards.includes(e.id) && Math.abs(e.x - o.x) + Math.abs(e.y - o.y) <= 3); }
+  function guardsNear(run, o) { if (!o.guards?.length) return []; return alive(room(run)).filter(e => o.guards.includes(e.id) && Math.abs(e.x - o.x) + Math.abs(e.y - o.y) <= RULES.level.guardRadius); }
   function interactions(run, o) { // 이 소품에 지금 할 수 있는 행동 목록(표시 비용 = 실제 비용)
     const T = RULES.time, combat = run.mode === 'combat', cost = n => (combat ? '주 행동' : '시간 ' + n), out = [];
     if (o.kind === 'node' && o.qty > 0) { const bonus = (run.hero.harvest || 0) + (['ore', 'resin', 'coal', 'crystal'].includes(o.mat) ? gearSum(run, 'gather') : 0); out.push({ method: 'gather', label: MATERIALS[o.mat].name + ' 채집 ×' + (o.fresh === false ? o.qty : o.qty + bonus), cost: cost(T.gather), full: bagRoom(run, o.mat) === 0 }); }
@@ -594,7 +628,7 @@
     if (o.kind === 'device' && !o.on) out.push({ method: 'device', label: '봉인 장치 작동', cost: cost(T.device) });
     if (o.kind === 'camp' && !o.used && !combat) out.push({ method: 'rest', label: '휴식: 체력 ' + Math.ceil(run.hero.maxHp * 0.4) + ' 회복(원정당 1회)', cost: '시간 ' + T.rest });
     if (o.kind === 'altar' && !o.used && !combat) { const ci = checkInfo(run, ALTAR.check); out.push({ method: 'altar', label: ALTAR.name + ' 판정 ' + ci.formula + (ci.bonus ? '+' + ci.bonus : '') + ' ≥ ' + ci.dc + ' (' + Math.round(ci.chance * 100) + '%)', cost: '시간 1', note: '성공: ' + ALTAR.success + ' · 실패: 시간 +' + ALTAR.fail.time, check: ci }); }
-    const gs = guardsNear(run, o); if (gs.length) for (const it of out) if (['gather', 'open', 'safe', 'check', 'device'].includes(it.method)) it.blocked = '경비(' + edef(gs[0]).name + (gs.length > 1 ? ' 외 ' + (gs.length - 1) : '') + ')가 지키고 있다 — 처치하거나 3칸 밖으로 떼어내자';
+    const gs = guardsNear(run, o); if (gs.length) for (const it of out) if (['gather', 'open', 'safe', 'check', 'device'].includes(it.method)) it.blocked = '경비(' + edef(gs[0]).name + (gs.length > 1 ? ' 외 ' + (gs.length - 1) : '') + ')가 지키고 있다 — 처치하거나 ' + RULES.level.guardRadius + '칸 밖으로 떼어내자';
     if (o.kind === 'objective') out.push({ method: 'objective', label: REGIONS[run.regionId].objective.name + ' 회수', cost: '무료' });
     if (o.kind === 'pile') out.push({ method: 'pile', label: '바닥의 물품 줍기', cost: '무료' });
     if (o.kind === 'portal') { const near = alertIn(room(run)).some(e => dist(e, run.hero) <= 2); out.push({ method: 'extract', label: '길드로 귀환', cost: combat ? '주 행동' : '무료', blocked: near ? '경계 중인 적이 2칸 안에 있다' : null }); }
@@ -665,16 +699,16 @@
 
   // 화면용: 적이 다음 턴에 닿을 수 있는 위협 칸
   function threatTiles(run, e) {
-    const d = edef(e); if (e.intent?.tiles?.length) return e.intent.tiles; if (d.range) { const out = []; for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (Math.abs(x - e.x) + Math.abs(y - e.y) <= d.range && los(room(run), e, { x, y }) && !solid(tile(room(run), x, y))) out.push([x, y]); return out; }
-    const enrage = d.boss && !d.stalker ? 2 : 0, base = e.st.root || e.st.stun ? 0 : d.speed, sp = base ? base + enrage : 0; // 수호자는 4칸 넘게 떨어진 칸까지는 격노 질주로 닿는다
+    const d = edef(e); if (e.intent?.tiles?.length) return e.intent.tiles; if (d.ai === 'none') return []; if (d.range) { const out = []; for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (Math.abs(x - e.x) + Math.abs(y - e.y) <= d.range && los(room(run), e, { x, y }) && !solid(tile(room(run), x, y))) out.push([x, y]); return out; }
+    const enrage = d.boss && !d.stalker ? 2 : 0, base = e.st.root || e.st.stun || e.flee != null ? 0 : speedOf(e), sp = base ? base + enrage : 0; // 수호자는 4칸 넘게 떨어진 칸까지는 격노 질주로 닿는다
     const seen = new Map([[key(e.x, e.y), 0]]), q = [[e.x, e.y]], out = new Set();
     while (q.length) { const [x, y] = q.shift(), c = seen.get(key(x, y)); for (const [dx, dy] of N4) { const nx = x + dx, ny = y + dy, k = key(nx, ny); if (solid(tile(room(run), nx, ny))) continue; if (c <= base || Math.abs(nx - e.x) + Math.abs(ny - e.y) >= 4) out.add(k); if (c < sp && !seen.has(k) && (walkable(run, nx, ny, true) || (nx === run.hero.x && ny === run.hero.y)) && !(nx === run.hero.x && ny === run.hero.y)) { seen.set(k, c + 1); q.push([nx, ny]); } } }
     return [...out].map(k => k.split(',').map(Number));
   }
   function allThreat(run) { const s = new Map(); for (const e of alertIn(room(run))) { if (e.intent?.tiles?.length || e.st.stun) continue; for (const [x, y] of threatTiles(run, e)) s.set(key(x, y), [x, y]); } return [...s.values()]; }
-  function intentText(run, e) { const d = edef(e); if (e.hp <= 0) return ''; if (e.st.stun) return '기절'; if (e.state !== 'alert') return (e.patrol ? '순찰 중 — 사방 ' + detectRange(run, e) + '칸을 살핀다.' : '방심 — 바라보는 쪽 ' + detectRange(run, e) + '칸만 본다. 가끔 뒤를 돌아본다.') + ' 들키기 전에 치면 기습 +' + RULES.ambushBonus; if (e.intent) return e.intent.label + (e.intent.dmg ? ' ' + e.intent.dmg : ''); if (d.ai === 'ranged') return '자리 잡고 조준'; if (d.ai === 'caster') return '문양 또는 치유'; if (d.ai === 'boss') return '곁에 있으면 후려치기 ' + Math.max(1, enemyDmg(run, e) - 2) + ' · 다음 예고: ' + ({ sweep: '휩쓸기', charge: '돌진', summon: '소환', slam: '내려찍기', vent: '열기 방출', runes: '문양', beam: '광선', blink: '점멸' }[d.pattern[e.step % d.pattern.length]]); return '접근 후 공격 ' + enemyDmg(run, e); }
+  function intentText(run, e) { const d = edef(e); if (e.hp <= 0) return ''; if (e.st.stun) return '기절'; if (e.state !== 'alert') return (e.patrol ? '순찰 중 — 사방 ' + detectRange(run, e) + '칸을 살핀다.' : '방심 — 바라보는 쪽 ' + detectRange(run, e) + '칸만 본다. 가끔 뒤를 돌아본다.') + ' 들키기 전에 치면 기습 +' + RULES.ambushBonus; if (e.flee != null) return '금화 ' + e.stolen + '을(를) 들고 달아나는 중 — ' + (e.flee + 1) + '턴 뒤 사라진다'; if (d.ai === 'none') return '움직이지 않는다'; if (e.intent) return e.intent.label + (e.intent.dmg ? ' ' + e.intent.dmg : ''); if (d.ai === 'ranged') return '자리 잡고 조준'; if (d.ai === 'caster') return '문양 또는 치유'; if (d.ai === 'boss') return '곁에 있으면 후려치기 ' + Math.max(1, enemyDmg(run, e) - 2) + ' · 다음 예고: ' + ({ sweep: '휩쓸기', charge: '돌진', summon: '소환', slam: '내려찍기', vent: '열기 방출', runes: '문양', beam: '광선', blink: '점멸' }[d.pattern[e.step % d.pattern.length]]); return '접근 후 공격 ' + enemyDmg(run, e); }
 
   function strip(run) { const c = clone(run); c.events = []; return c; } // 저장용
-  ER.run = { create, act, preview, room, card, los, visible, vision, pathTo, reachableTiles, cardRangeTiles, doorInfo, exitInfo, nearbyObjects, interactions, threatTiles, allThreat, watchTiles, critChance, intentText, bagSlots, bagRoom, moveMax, phaseDef, alive, alertIn, strip, calcDamage, addBag, edef, guardsNear };
+  ER.run = { create, act, preview, room, card, los, visible, vision, pathTo, reachableTiles, cardRangeTiles, doorInfo, exitInfo, nearbyObjects, interactions, threatTiles, allThreat, watchTiles, critChance, intentText, bagSlots, bagRoom, moveMax, phaseDef, alive, alertIn, strip, calcDamage, addBag, edef, guardsNear, armorOf, trait };
   if (typeof module === 'object') module.exports = ER;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

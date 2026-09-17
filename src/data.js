@@ -3,12 +3,14 @@
 (function (g) {
   'use strict';
   const ER = g.ER = g.ER || {};
+  if (typeof require === 'function' && !ER.CONTENT) require('./content.js');
 
   const RULES = {
     appId: 'emberwake-reborn', version: '0.1.0', saveVersion: 1,
     roomW: 13, roomH: 9,
     move: 4, deckSize: 12, maxCopies: 2, startHand: 5, drawPerTurn: 2, handMax: 7,
     bagSlots: 6, gearSlots: 2,
+    level: { guardRadius: 3, patrolDoorDist: 3, hazardMax: 3, handmade: 0.4 }, // 방 구성: 경비 반경, 순찰로와 문 사이 거리, 방당 경비 옆 위험 지형 수, 수제 방이 있을 때 쓰는 확률
     guardBlock: 3, ambushBonus: 2,
     crit: { base: 10, exposed: 20, noaMoved: 10 }, // 치명타 확률(%)·피해 +50%. 영웅의 직접 공격에만 적용, 적은 치명타가 없다
     gauge: { max: 5, cost: 3 }, // 투지: 전투 중 내 턴 시작 +1, 처치 +1, 치명타 +1, 대원별 조건 +1
@@ -132,6 +134,22 @@
     stalker: { name: '붉은달 추적자', asset: 'enemy.warden', tint: 'hue-rotate(-30deg) saturate(2) brightness(0.8)', hp: 60, dmg: 8, speed: 3, detect: 99, ai: 'boss', pattern: ['sweep', 'charge'], size: 80, boss: true, cap: 6, stalker: true, gold: [0, 0], loot: [['moonshard', 1]], note: '시간 초과의 대가. 쓰러뜨리기보다 귀환문으로 달아나는 편이 낫다.' }
   };
 
+  /* 적 특성: 행동 유형(ai) 위에 얹는 조립식 부품. 적 데이터의 traits: { id: {매개변수} } 로 쓴다. 규칙은 run.js 의 같은 id 가 해석한다.
+     params: [기본값, 설명]. text: 툴팁·도구에 보이는 설명. */
+  const TRAITS = {
+    explode: { name: '자폭', params: { dmg: [4, '피해'] }, text: p => '쓰러지면 터져 십자 1칸에 피해 ' + p.dmg + '. 곁의 적도 맞는다.' },
+    split: { name: '분열', params: { into: ['slaglet', '나오는 적'], n: [2, '수'] }, text: p => '쓰러지면 ' + (ENEMIES[p.into]?.name || p.into) + ' ' + p.n + '마리로 갈라진다.' },
+    regen: { name: '재생', params: { n: [2, '턴마다 회복'] }, text: p => '자기 차례마다 체력 ' + p.n + ' 회복.' },
+    enrage: { name: '격앙', params: { below: [50, '체력 % 이하'], dmg: [2, '피해 +'], speed: [1, '이동 +'] }, text: p => '체력 ' + p.below + '% 이하에서 피해 +' + p.dmg + ', 이동 +' + p.speed + '.' },
+    frontArmor: { name: '정면 방패', params: { n: [2, '장갑'] }, text: p => '바라보는 쪽에서 오는 피해 -' + p.n + '. 옆(같은 세로줄)이나 등 뒤, 기절 중에는 통하지 않는다.' },
+    aura: { name: '지휘', params: { armor: [1, '장갑 +'], radius: [2, '반경'] }, text: p => p.radius + '칸 안의 다른 적에게 장갑 +' + p.armor + '. 먼저 쓰러뜨리자.' },
+    thief: { name: '소매치기', params: { gold: [8, '훔치는 금화'] }, text: p => '타격이 들어가면 금화를 최대 ' + p.gold + ' 훔쳐 달아난다. 2턴 안에 쓰러뜨리면 되찾는다.' },
+    hex: { name: '저주 화살', params: { n: [1, '버리는 카드'] }, text: p => '피해를 입히면 손패 ' + p.n + '장을 무작위로 버리게 한다.' },
+    spawner: { name: '둥지', params: { kind: ['inkling', '나오는 적'], every: [2, '주기(턴)'], max: [2, '동시 최대'] }, text: p => p.every + '턴마다 ' + (ENEMIES[p.kind]?.name || p.kind) + '을(를) 낳는다(동시에 ' + p.max + '마리까지).' }
+  };
+  const AI_TYPES = { melee: '근접: 다가와 친다', pack: '무리: 같은 종이 곁에 있으면 피해 +1', ranged: '사수: 한 턴 조준 후 발사', caster: '술사: 발밑 문양 예고·아군 치유', heavy: '중장: 내려찍기 3칸 예고', none: '움직이지 않음(특성만 작동)', boss: '수호자: pattern 순서대로 예고' };
+  const enemyNote = kind => { const d = ENEMIES[kind]; return [d.note].concat(Object.entries(d.traits || {}).map(([id, p]) => TRAITS[id] ? TRAITS[id].name + ': ' + TRAITS[id].text(p) : '')).filter(Boolean).join(' '); };
+
   // 방 종류별 구성. nodes: [재료, 개수범위, 1개당 수량범위]
   const REGIONS = {
     verdant: { id: 'verdant', name: '뿌리 잠긴 회랑', subtitle: '길드의 잊힌 입구', rank: 1, rooms: 7, limit: 70, floor: 'floor.verdant', wall: 'wall.verdant', ambient: '#0d1a14', hazard: { id: 'thorn', name: '가시덤불', dmg: 3 },
@@ -220,6 +238,11 @@
     revival: { name: '길드 재건 선언', text: '별을 삼킨 사제를 쓰러뜨리고 항로 원본을 가져온다.', auto: 'boss:archive', reward: { gold: 150 }, rewardText: '금화 150 · 길드 재건', region: 'archive' }
   };
 
-  ER.data = { RULES, MATERIALS, CARDS, RESEARCH, HEROES, TRAINING, ENEMIES, REGIONS, CHESTS, ALTAR, FACILITIES, GEAR, QUESTS };
+  // 도구가 관리하는 콘텐츠(content.js)를 합친다.
+  const CONTENT = ER.CONTENT || {};
+  for (const [k, v] of Object.entries(CONTENT.enemies || {})) ENEMIES[k] = Object.assign(ENEMIES[k] || {}, v);
+  for (const sp of CONTENT.spawns || []) { const def = REGIONS[sp.region]?.rooms_def[sp.room]; if (def && sp.group.every(k => ENEMIES[k])) def.enemies.push(sp.group.slice()); }
+
+  ER.data = { TRAITS, AI_TYPES, enemyNote, RULES, MATERIALS, CARDS, RESEARCH, HEROES, TRAINING, ENEMIES, REGIONS, CHESTS, ALTAR, FACILITIES, GEAR, QUESTS };
   if (typeof module === 'object') module.exports = ER;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

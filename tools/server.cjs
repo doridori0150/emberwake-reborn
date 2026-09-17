@@ -3,8 +3,24 @@
 const http = require('http'), fs = require('fs'), path = require('path');
 const ROOT = path.resolve(__dirname, '..'), i = process.argv.indexOf('--port'), PORT = Number(i > 0 ? process.argv[i + 1] : process.env.PORT || 8812);
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.webp': 'image/webp', '.png': 'image/png' };
+/* 개발용 저장 API(editor.html 전용). 이 서버는 127.0.0.1 에만 묶이고, 같은 출처의 요청만 받으며, 쓰는 파일은 src/content.js 하나뿐이다.
+   본문은 JSON 이고 파일 내용은 서버가 직접 만든다(요청이 보낸 글자를 그대로 쓰지 않는다). 직전 파일은 dist/content.prev.js 로 남긴다. */
+function dev(req, res, p) {
+  const json = (code, o) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(o)); };
+  const host = String(req.headers.host || ''), origin = req.headers.origin;
+  if (!/^(127\.0\.0\.1|localhost):\d+$/.test(host) || (origin && origin !== 'http://' + host)) return json(403, { ok: false, reason: '로컬 요청만 받는다' });
+  if (p === '/__dev/ping') return json(200, { ok: true });
+  if (p !== '/__dev/content' || req.method !== 'POST') return json(404, { ok: false, reason: '없는 API' });
+  let body = '', big = false; req.on('data', c => { body += c; if (body.length > 2e6) { big = true; req.destroy(); } });
+  req.on('end', () => { if (big) return; try {
+    const content = JSON.parse(body), fmt = require('../src/contentfmt.js').contentfmt, why = fmt.check(content); if (why) return json(400, { ok: false, reason: why });
+    const out = path.join(ROOT, 'src', 'content.js'); fs.mkdirSync(path.join(ROOT, 'dist'), { recursive: true }); if (fs.existsSync(out)) fs.copyFileSync(out, path.join(ROOT, 'dist', 'content.prev.js'));
+    fs.writeFileSync(out, fmt.text(content)); json(200, { ok: true, enemies: Object.keys(content.enemies).length, spawns: content.spawns.length, rooms: content.rooms.length });
+  } catch (e) { json(400, { ok: false, reason: String(e.message || e) }); } });
+}
 http.createServer((req, res) => {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname); if (p === '/') p = '/index.html';
+  if (p.startsWith('/__dev/')) return dev(req, res, p);
   const file = path.join(ROOT, p); if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, buf) => { if (err) { res.writeHead(404); return res.end('not found'); } res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' }); res.end(buf); });
 }).listen(PORT, '127.0.0.1', () => console.log('Emberwake Reborn → http://127.0.0.1:' + PORT + '/'));
