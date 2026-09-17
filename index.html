@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Emberwake Reborn — 잿불의 귀환</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <!-- 길드 -->
+  <section id="guild" class="screen" hidden>
+    <header class="topbar">
+      <div class="brand">잿불 길드<small id="guildStage"></small></div>
+      <div id="stockBar" class="stockbar" title="창고 재고"></div>
+      <button id="pinChip" class="pinchip" type="button"></button>
+      <div class="spacer"></div>
+      <button class="ghost" data-act="saves" type="button">저장 관리</button>
+      <button class="ghost" data-act="settings" type="button">설정</button>
+    </header>
+    <div class="stage"><canvas id="guildCanvas" width="1024" height="640"></canvas>
+      <div id="guildHint" class="hint"></div>
+      <nav id="guildNav" class="quicknav" aria-label="시설 바로가기"></nav>
+      <button id="sortieBtn" class="primary big sortie" type="button">원정 준비 <kbd>Enter</kbd></button>
+    </div>
+    <aside id="drawer" class="drawer" hidden></aside>
+  </section>
+
+  <!-- 원정 -->
+  <section id="run" class="screen" hidden>
+    <header class="topbar">
+      <div class="brand"><span id="roomName"></span><small id="regionName"></small></div>
+      <div id="moon" class="moon"></div>
+      <div id="turnBanner" class="turnbanner"></div>
+      <div class="spacer"></div>
+      <button class="ghost" data-act="map" type="button">지도 <kbd>M</kbd></button>
+      <button class="ghost" data-act="bag" type="button">가방 <kbd>B</kbd></button>
+      <button class="ghost" data-act="log" type="button">기록 <kbd>L</kbd></button>
+      <button class="ghost" data-act="settings" type="button">설정</button>
+    </header>
+    <div class="stage" id="runStage">
+      <canvas id="runCanvas" width="832" height="576"></canvas>
+      <div id="heroHud" class="hud hud-left"></div>
+      <div id="goalHud" class="hud hud-right"></div>
+      <div id="feed" class="feed" aria-live="polite"></div>
+      <div id="tip" class="tip" hidden></div>
+      <div id="toast" class="toast" hidden></div>
+      <div id="rollPop" class="rollpop" hidden></div>
+    </div>
+    <div id="prompt" class="prompt"></div>
+    <footer class="actionbar">
+      <div id="basics" class="basics"></div>
+      <div id="hand" class="hand"></div>
+      <button id="endTurn" class="primary big" type="button">턴 종료 <kbd>Space</kbd></button>
+    </footer>
+  </section>
+
+  <div id="modal" class="modal" hidden><div id="modalBox" class="modalbox"></div></div>
+  <div id="banner" class="banner" hidden></div>
+</div>
+<script src="src/asset-manifest.js"></script>
+<script src="src/rng.js"></script>
+<script src="src/data.js"></script>
+<script src="src/mapgen.js"></script>
+<script src="src/run.js"></script>
+<script src="src/guild.js"></script>
+<script src="src/save.js"></script>
+<script src="src/audio.js"></script>
+<script src="src/render.js"></script>
+<script src="src/guildview.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>

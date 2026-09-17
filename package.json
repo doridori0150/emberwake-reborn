@@ -1,0 +1,13 @@
+{
+  "name": "emberwake-reborn",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Emberwake Reborn — 길드 부흥 미궁 탐사 덱빌딩 (오프라인 싱글 플레이)",
+  "scripts": {
+    "start": "node tools/server.cjs",
+    "test": "node --test tests/core.test.cjs",
+    "build": "node tools/build.cjs",
+    "sim": "node tools/sim.cjs",
+    "assets": "node tools/import-assets.cjs"
+  }
+}
