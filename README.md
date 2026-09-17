@@ -11,6 +11,7 @@
 | 앱 ID / DB | `emberwake-reborn` / IndexedDB `emberwake-reborn-db` |
 | 개발 서버 | `http://127.0.0.1:8812/` (원본은 8791) |
 | 포터블 빌드 | `dist/EmberwakeReborn-Portable.html` (단일 파일, 약 7.6MB) |
+| **공개 플레이 주소** | https://doridori0150.github.io/emberwake-reborn/ (GitHub Pages, 누구나 접속 · 저장소 `doridori0150/emberwake-reborn`의 main에 push하면 자동 갱신) |
 | 웹 게시본 | https://claude.ai/artifact/JtDzd9h3Wo5PMyG6u8oFtt (기본 비공개, 페이지의 공유 메뉴에서 공개 범위 설정). `npm run build`가 만드는 `dist/EmberwakeReborn-Artifact.html`을 다시 게시해 갱신한다. 게시본에서는 파일 내려받기가 막혀 저장 이동은 **저장 관리 → 텍스트로 복사·붙여넣기**를 쓴다 |
 
 ## 실행
