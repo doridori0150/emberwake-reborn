@@ -48,6 +48,9 @@
         else if (ev.t === 'text') { this.float(ev.x, ev.y - 0.5, ev.text, '#f3a29d'); await sleep(90 * sp()); }
         else if (ev.t === 'loot') { this.float(ev.x, ev.y - 0.3, ev.text, '#ffe27a'); ER.audio?.play('loot'); }
         else if (ev.t === 'shake') this.shakeUntil = performance.now() + 220;
+        else if (ev.t === 'crit') { this.float(ev.x, ev.y - 0.7, '치명타!', '#ffe27a', true); this.shakeUntil = performance.now() + 160; ER.audio?.play('blast'); }
+        else if (ev.t === 'special') { const hu = this.units.get('hero'); if (hu) this.float(hu.x, hu.y - 0.9, ev.name, '#d6b3ff', true); ER.audio?.play('skill'); await sleep(260 * sp()); }
+        else if (ev.t === 'face') { const fu = this.units.get(ev.id); if (fu) fu.dir = ev.dir; }
         else if (ev.t === 'flash') this.fx.push({ kind: 'flash', t0: performance.now(), dur: 300 });
         else if (ev.t === 'room') { for (let i = 0; i <= 6; i++) { this.fade = i / 6; await sleep(18); } this.sync(); this.floats = []; for (let i = 6; i >= 0; i--) { this.fade = i / 6; await sleep(18); } }
       }
@@ -72,6 +75,7 @@
       if (ov.reach) for (const [x, y] of ov.reach) { ctx.fillStyle = 'rgba(95,201,184,.13)'; ctx.fillRect(x * T + 2, y * T + 2, T - 4, T - 4); }
       if (ov.range) for (const [x, y] of ov.range) { ctx.fillStyle = 'rgba(240,165,69,.16)'; ctx.fillRect(x * T + 2, y * T + 2, T - 4, T - 4); ctx.strokeStyle = 'rgba(240,165,69,.5)'; ctx.lineWidth = 1; ctx.strokeRect(x * T + 2.5, y * T + 2.5, T - 5, T - 5); }
       if (ov.allThreat) for (const [x, y] of ov.allThreat) { ctx.fillStyle = 'rgba(255,140,60,.17)'; ctx.fillRect(x * T + 1, y * T + 1, T - 2, T - 2); ctx.strokeStyle = 'rgba(255,160,90,.85)'; ctx.lineWidth = 3; for (const [cx, cy, sx, sy] of [[4, 4, 1, 1], [T - 4, 4, -1, 1], [4, T - 4, 1, -1], [T - 4, T - 4, -1, -1]]) { ctx.beginPath(); ctx.moveTo(x * T + cx + sx * 12, y * T + cy); ctx.lineTo(x * T + cx, y * T + cy); ctx.lineTo(x * T + cx, y * T + cy + sy * 12); ctx.stroke(); } }
+      if (ov.watch) for (const [x, y] of ov.watch) { ctx.fillStyle = 'rgba(255,226,122,.13)'; ctx.fillRect(x * T + 1, y * T + 1, T - 2, T - 2); ctx.strokeStyle = 'rgba(255,226,122,.55)'; ctx.lineWidth = 1; ctx.strokeRect(x * T + 3.5, y * T + 3.5, T - 7, T - 7); }
       if (ov.threat) for (const [x, y] of ov.threat) { ctx.strokeStyle = 'rgba(255,150,90,.55)'; ctx.setLineDash([4, 4]); ctx.lineWidth = 2; ctx.strokeRect(x * T + 5, y * T + 5, T - 10, T - 10); ctx.setLineDash([]); }
       // 적의 예고 칸: 색 + 빗금 + 느낌표(색만으로 구분하지 않는다)
       for (const e of RUN.alive(rm)) if (e.intent?.tiles && this.units.get(e.id)) for (const [x, y] of e.intent.tiles) this.warnTile(ctx, x, y, now);
@@ -93,7 +97,7 @@
       if (ph === 'red' || ph === 'hunt') { ctx.fillStyle = 'rgba(150,10,30,' + (0.10 + 0.04 * Math.sin(now / 500)) + ')'; ctx.fillRect(0, 0, W * T, H * T); }
       // 효과·숫자
       this.fx = this.fx.filter(f => now - f.t0 < f.dur); for (const f of this.fx) { const k = (now - f.t0) / f.dur; if (f.kind === 'proj') { const x = (f.fx + (f.tx - f.fx) * k) * T + T / 2, y = (f.fy + (f.ty - f.fy) * k) * T + T / 3; ctx.fillStyle = { fire: '#ff9a4a', ice: '#9fd0ff', arrow: '#e8e0c8', bolt: '#d6b3ff' }[f.style] || '#fff'; ctx.beginPath(); ctx.arc(x, y, f.style === 'arrow' ? 4 : 7, 0, 7); ctx.fill(); } else if (f.kind === 'blast') { ctx.fillStyle = 'rgba(255,' + (f.style === 'fire' ? '150,60,' : '235,200,') + (0.6 * (1 - k)) + ')'; for (const [x, y] of f.tiles) ctx.fillRect(x * T, y * T, T, T); } else if (f.kind === 'flash') { ctx.fillStyle = 'rgba(255,255,255,' + (0.8 * (1 - k)) + ')'; ctx.fillRect(0, 0, W * T, H * T); } }
-      if (ov.preview) for (const d of ov.preview) { const u = this.units.get(d.id); if (!u) continue; const txt = (d.min === d.max ? d.min : d.min + '~' + d.max) + (d.note ? ' (' + d.note + ')' : '') + (d.kill ? ' 처치' : ''); if (d.to && (d.to[0] !== u.x || d.to[1] !== u.y)) { ctx.strokeStyle = '#ffe27a'; ctx.setLineDash([5, 4]); ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(u.x * T + T / 2, u.y * T + T / 2); ctx.lineTo(d.to[0] * T + T / 2, d.to[1] * T + T / 2); ctx.stroke(); ctx.setLineDash([]); ctx.beginPath(); ctx.arc(d.to[0] * T + T / 2, d.to[1] * T + T / 2, 9, 0, 7); ctx.stroke(); } this.label(ctx, u.x * T + T / 2, u.y * T + T + 4, '예상 ' + txt, d.kill ? '#ffe27a' : '#ffd9a0', '#3a1b1aee'); }
+      if (ov.preview) for (const d of ov.preview) { const u = this.units.get(d.id); if (!u) continue; const txt = (d.min === d.max ? d.min : d.min + '~' + d.max) + (d.note ? ' (' + d.note + ')' : '') + (d.kill ? ' 처치' : '') + (d.crit && ov.crit ? ' · 치명 ' + d.crit + ' (' + ov.crit + '%)' : ''); if (d.to && (d.to[0] !== u.x || d.to[1] !== u.y)) { ctx.strokeStyle = '#ffe27a'; ctx.setLineDash([5, 4]); ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(u.x * T + T / 2, u.y * T + T / 2); ctx.lineTo(d.to[0] * T + T / 2, d.to[1] * T + T / 2); ctx.stroke(); ctx.setLineDash([]); ctx.beginPath(); ctx.arc(d.to[0] * T + T / 2, d.to[1] * T + T / 2, 9, 0, 7); ctx.stroke(); } this.label(ctx, u.x * T + T / 2, u.y * T + T + 4, '예상 ' + txt, d.kill ? '#ffe27a' : '#ffd9a0', '#3a1b1aee'); }
       if (ov.marks) for (const m of ov.marks) { const u = this.units.get(m.id); if (u) this.label(ctx, u.x * T + T / 2, u.y * T + T + 4, m.text, '#ff9a4a', '#3a1b1aee'); }
       this.floats = this.floats.filter(f => now - f.t0 < f.dur); for (const f of this.floats) { const k = (now - f.t0) / f.dur; ctx.globalAlpha = 1 - k * k; ctx.font = (f.big ? 'bold 24px' : 'bold 16px') + ' sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 4; ctx.strokeStyle = '#000c'; const x = f.x * T + T / 2, y = f.y * T - 8 - k * 34; ctx.strokeText(f.text, x, y); ctx.fillStyle = f.color; ctx.fillText(f.text, x, y); ctx.globalAlpha = 1; }
       if (this.fade) { ctx.fillStyle = 'rgba(0,0,0,' + this.fade + ')'; ctx.fillRect(0, 0, W * T, H * T); }
@@ -136,7 +140,11 @@
         this.label(ctx, px, top - 16, badge, e.state === 'alert' ? '#ffd0cc' : '#c9cfd0', e.state === 'alert' ? 'rgba(70,20,18,.88)' : 'rgba(20,24,28,.8)');
         let sx = px - w / 2; for (const [k, col, name] of [['burn', '#ff9a4a', '화'], ['poison', '#a6e06a', '독'], ['root', '#9fd0ff', '속'], ['exposed', '#d6b3ff', '틈']]) if (e.st[k]) { ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(sx, top + 8, 24, 13, 4); ctx.fill(); ctx.fillStyle = '#111'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(name + e.st[k], sx + 12, top + 18); sx += 27; }
         if (e.armor) { ctx.fillStyle = '#b8c4cc'; ctx.beginPath(); ctx.roundRect(px + w / 2 + 3, top - 3, 22, 13, 4); ctx.fill(); ctx.fillStyle = '#111'; ctx.font = 'bold 10px sans-serif'; ctx.fillText('갑' + e.armor, px + w / 2 + 14, top + 7); }
-      } else if (run.hero.block > 0) this.label(ctx, px, top, '🛡 ' + run.hero.block, '#9fd0ff');
+      } else {
+        const h = run.hero, bw = 46; ctx.fillStyle = '#000b'; ctx.fillRect(px - bw / 2 - 1, top - 1, bw + 2, 8); ctx.fillStyle = '#1f3a2a'; ctx.fillRect(px - bw / 2, top, bw, 6); ctx.fillStyle = u.hp / u.maxHp > 0.35 ? '#6fd38a' : '#f0a545'; ctx.fillRect(px - bw / 2, top, bw * Math.max(0, u.hp) / u.maxHp, 6);
+        ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.fillStyle = '#fff'; const txt = Math.max(0, u.hp) + '/' + u.maxHp + (h.block > 0 ? '  🛡' + h.block : ''); ctx.strokeText(txt, px, top - 3); ctx.fillText(txt, px, top - 3);
+        const gmax = D.RULES.gauge.max, g = h.gauge || 0; for (let i = 0; i < gmax; i++) { ctx.fillStyle = i < g ? (g >= D.RULES.gauge.cost ? '#d6b3ff' : '#8f7ac0') : 'rgba(0,0,0,.55)'; ctx.beginPath(); ctx.arc(px - (gmax - 1) * 4.5 + i * 9, top + 12, 3, 0, 7); ctx.fill(); }
+      }
     }
   }
   ER.RunView = RunView;

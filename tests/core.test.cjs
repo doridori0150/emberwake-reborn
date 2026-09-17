@@ -4,7 +4,7 @@ const test = require('node:test'), assert = require('node:assert');
 require('../src/guild.js'); require('../src/save.js');
 const ER = globalThis.ER, { RUN = ER.run, G = ER.guild } = {}, D = ER.data, M = ER.map;
 const { bot } = require('../tools/sim.cjs');
-const mk = (hero = 'ara', seed = 't', region = 'verdant', extra = {}) => RUN.create(Object.assign({ regionId: region, heroId: hero, deck: D.HEROES[hero].deck, seed }, extra));
+const mk = (hero = 'ara', seed = 't', region = 'verdant', extra = {}) => RUN.create(Object.assign({ regionId: region, heroId: hero, deck: D.HEROES[hero].deck, seed, noCrit: true }, extra));
 // fixture: 빈 방 한가운데에 영웅과 지정한 적만 둔다.
 function arena(hero, foes, opts = {}) {
   const run = mk(hero, opts.seed || 'arena', 'verdant', opts.extra); const rm = RUN.room(run);
@@ -156,12 +156,36 @@ test('저장: 체크섬·손상 감지·다른 게임 파일 거부·왕복', ()
 
 test('봇 원정: 모든 지역·대원에서 교착이나 예외 없이 끝난다', () => { for (const region of Object.keys(D.REGIONS)) for (const hero of Object.keys(D.HEROES)) for (let i = 0; i < 12; i++) { const run = mk(hero, 'bot' + i, region); bot(run, i % 2 ? 'boss' : 'loot'); assert.ok(['extracted', 'defeat'].includes(run.status)); assert.ok(run.bag.length <= RUN.bagSlots(run)); for (const s of run.bag) assert.ok(s.qty <= D.MATERIALS[s.mat].stack); } });
 
-test('기습: 방심한 적은 건드리기 전까지 모르고, 순찰병은 감지 거리에서 발각한다. 술렁임부터 방심한 적도 2칸에서 눈치챈다', () => {
-  const run = arena('ara', [['goblin', 6, 4]], { alert: false, hand: ['strike'] }); const e = RUN.room(run).enemies[0]; delete e.patrol;
-  RUN.act(run, { t: 'move', x: 5, y: 4 }); assert.equal(run.mode, 'explore', '곁에 가도 모른다'); const p = RUN.preview(run, { t: 'card', i: 0, target: { id: e.id } }); assert.equal(p.dmg[0].min, 6 + D.RULES.ambushBonus);
+test('기습과 시선: 방심한 적은 바라보는 쪽 2칸만 본다. 등 뒤로 다가가면 기습, 정면이면 발각. 순찰병은 사방을 본다', () => {
+  const run = arena('ara', [['goblin', 6, 4]], { alert: false, hand: ['strike'] }); const e = RUN.room(run).enemies[0]; delete e.patrol; e.facing = 'right';
+  RUN.act(run, { t: 'move', x: 5, y: 4 }); assert.equal(run.mode, 'explore', '등 뒤에서는 곁에 가도 모른다'); const p = RUN.preview(run, { t: 'card', i: 0, target: { id: e.id } }); assert.equal(p.dmg[0].min, 6 + D.RULES.ambushBonus);
   RUN.act(run, { t: 'card', i: 0, target: { id: e.id } }); assert.equal(e.hp, 9 - 8); assert.equal(run.mode, 'combat'); assert.equal(run.hero.main, 0, '기습도 주 행동을 쓴다');
-  const r2 = arena('ara', [['goblin', 8, 4]], { alert: false }); r2.rooms[r2.roomId].enemies[0].patrol = { a: [8, 4], b: [8, 4], to: 'b' }; RUN.act(r2, { t: 'move', x: 5, y: 4 }); assert.equal(r2.mode, 'combat', '순찰병은 3칸에서 발각');
-  const r3 = arena('ara', [['goblin', 8, 4]], { alert: false }); delete r3.rooms[r3.roomId].enemies[0].patrol; r3.phase = 1; RUN.act(r3, { t: 'move', x: 6, y: 4 }); assert.equal(r3.mode, 'combat', '술렁임에서는 방심한 적도 2칸에서 깬다');
+  const front = arena('ara', [['goblin', 7, 4]], { alert: false }); const f = RUN.room(front).enemies[0]; delete f.patrol; f.facing = 'left'; assert.ok(RUN.watchTiles(front, f).some(([x, y]) => x === 5 && y === 4)); assert.ok(!RUN.watchTiles(front, f).some(([x]) => x > 7), '등 뒤는 보지 않는다');
+  RUN.act(front, { t: 'move', x: 5, y: 4 }); assert.equal(front.mode, 'combat', '정면 2칸 안에 들어가면 발각'); assert.equal(front.hero.x, 5, '발각되면 걸음을 멈춘다');
+  const turn = arena('ara', [['goblin', 9, 1]], { alert: false }); const t = RUN.room(turn).enemies[0]; delete t.patrol; t.facing = 'right'; turn.hero.x = 1; turn.hero.y = 7; for (let i = 0; i < 3; i++) { RUN.act(turn, { t: 'step', dir: 'right' }); RUN.act(turn, { t: 'step', dir: 'left' }); } assert.equal(t.facing, 'left', '내 6걸음마다 뒤를 돌아본다');
+  const r2 = arena('ara', [['goblin', 8, 4]], { alert: false }); r2.rooms[r2.roomId].enemies[0].patrol = { a: [8, 4], b: [8, 4], to: 'b' }; r2.rooms[r2.roomId].enemies[0].facing = 'right'; RUN.act(r2, { t: 'move', x: 5, y: 4 }); assert.equal(r2.mode, 'combat', '순찰병은 등 뒤 3칸도 알아챈다');
+});
+
+test('치명타: 영웅의 직접 공격만, 확률과 최대 피해가 미리보기에 나오고 빈틈이면 확률이 오른다. 굴림은 저장 복원 뒤에도 같다', () => {
+  const run = arena('ara', [['goblin', 4, 4]], { extra: { noCrit: false }, hand: ['strike'] }); const e = RUN.room(run).enemies[0]; e.hp = e.maxHp = 500;
+  const p = RUN.preview(run, { t: 'attack', id: e.id }); assert.equal(p.crit, D.RULES.crit.base); assert.deepEqual([p.dmg[0].min, p.dmg[0].max, p.dmg[0].crit], [4, 4, 6]);
+  e.st.exposed = 2; assert.equal(RUN.preview(run, { t: 'attack', id: e.id }).crit, D.RULES.crit.base + D.RULES.crit.exposed); e.st.exposed = 0;
+  const copy = JSON.parse(JSON.stringify(RUN.strip(run))); let crits = 0; const seq = [], seq2 = [];
+  for (let i = 0; i < 200; i++) { run.hero.main = 1; const hp = e.hp; RUN.act(run, { t: 'attack', id: e.id }); const d = hp - e.hp; assert.ok(d === 4 || d === 6); if (d === 6) crits++; seq.push(d); e.hp = 500; }
+  assert.ok(crits > 5 && crits < 50, '치명타 ' + crits + '/200'); const e2 = RUN.room(copy).enemies[0];
+  for (let i = 0; i < 200; i++) { copy.hero.main = 1; const hp = e2.hp; RUN.act(copy, { t: 'attack', id: e2.id }); seq2.push(hp - e2.hp); e2.hp = 500; } assert.deepEqual(seq, seq2);
+  const foe = arena('ara', [['goblin', 4, 4]], { extra: { noCrit: false } }); foe.hero.hp = foe.hero.maxHp = 500; for (let i = 0; i < 30; i++) { const hp = foe.hero.hp; RUN.act(foe, { t: 'end' }); assert.equal(hp - foe.hero.hp, 3, '적은 치명타가 없다'); }
+});
+
+test('투지와 특수기: 전투 턴·처치·대원별 조건으로 쌓이고, 3을 써서 주/보조 행동과 함께 발동한다', () => {
+  const ara = arena('ara', [['goblin', 4, 4]]); ara.hero.hp = ara.hero.maxHp = 99; assert.equal(RUN.preview(ara, { t: 'special' }).ok, false);
+  RUN.act(ara, { t: 'guard' }); RUN.act(ara, { t: 'end' }); assert.equal(ara.hero.gauge, 2, '막아냄 +1, 턴 시작 +1'); RUN.act(ara, { t: 'guard' }); RUN.act(ara, { t: 'end' }); assert.equal(ara.hero.gauge, 4);
+  assert.ok(RUN.act(ara, { t: 'special' }).ok); assert.equal(ara.hero.gauge, 1); assert.equal(ara.hero.block, 6); assert.equal(ara.hero.retaliate, 3); assert.equal(ara.hero.bonus, 0); assert.equal(ara.hero.main, 1, '수호의 함성은 보조 행동');
+  const noa = arena('noa', [['goblin', 6, 4]]); noa.hero.gauge = 3; const g = RUN.room(noa).enemies[0]; const pv = RUN.preview(noa, { t: 'special', target: { id: g.id } }); assert.ok(pv.ok); assert.deepEqual(pv.tiles[0], [5, 4]); assert.equal(pv.dmg[0].min, 5);
+  RUN.act(noa, { t: 'special', target: { id: g.id } }); assert.deepEqual([noa.hero.x, noa.hero.y], [5, 4]); assert.equal(g.hp, 4); assert.equal(noa.hero.main, 0); assert.ok(noa.hero.moved >= 3); assert.equal(RUN.act(noa, { t: 'special', target: { id: g.id } }).ok, false);
+  const walk = arena('noa', [['goblin', 10, 1]]); RUN.act(walk, { t: 'move', x: 6, y: 4 }); assert.equal(walk.hero.gauge, 1, '3칸 이동 +1');
+  const lumi = arena('lumi', [['goblin', 6, 4], ['goblin', 7, 4], ['goblin', 10, 7]]); lumi.hero.gauge = 3; const [a, b, c] = RUN.room(lumi).enemies; RUN.act(lumi, { t: 'special', target: { id: a.id } }); assert.equal(a.hp, 7); assert.equal(b.hp, 7); assert.equal(c.hp, 9); assert.equal(a.st.burn, 2); assert.equal(lumi.hero.gauge, 1, '3 소모 후 화상 부여 +1');
+  const calm = mk('ara', 'calm'); calm.hero.gauge = 5; assert.equal(RUN.preview(calm, { t: 'special' }).ok, false, '탐사 중에는 쓸 수 없다');
 });
 
 test('수문장: 곁에 붙어 있으면 후려치고(반격 가능), 소환 예고 동안 내 턴에 빈틈이 남는다', () => {

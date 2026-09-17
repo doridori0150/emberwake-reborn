@@ -10,6 +10,8 @@
     move: 4, deckSize: 12, maxCopies: 2, startHand: 5, drawPerTurn: 2, handMax: 7,
     bagSlots: 6, gearSlots: 2,
     guardBlock: 3, ambushBonus: 2,
+    crit: { base: 10, exposed: 20, noaMoved: 10 }, // 치명타 확률(%)·피해 +50%. 영웅의 직접 공격에만 적용, 적은 치명타가 없다
+    gauge: { max: 5, cost: 3 }, // 투지: 전투 중 내 턴 시작 +1, 처치 +1, 치명타 +1, 대원별 조건 +1
     maxAttacksPerPhase: 2, maxRangedPerPhase: 1, // 급사 방지: 한 적 턴에 영웅을 실제로 때릴 수 있는 횟수
     time: { door: 2, gather: 1, chest: 1, chestSafe: 3, device: 1, rest: 4, card: 1, round: 1, reshuffle: 1, pile: 0 },
     phases: [ // 붉은달 단계: 남은 시간 비율 기준
@@ -95,15 +97,18 @@
 
   const HEROES = {
     ara: { id: 'ara', name: '아라', title: '방패 선봉', asset: 'actor.ara', hp: 30, move: 4, attack: { dmg: 4, range: 1, name: '검 베기' }, guardBonus: 1,
-      passive: '기본 방어 +1. 방어로 근접 공격을 완전히 막으면 피해 2로 받아친다(적 턴당 1회).', build: '방어·반격: 맞을 자리를 고르고, 쌓은 방어를 피해로 바꾼다.',
+      passive: '기본 방어 +1. 방어로 근접 공격을 완전히 막으면 피해 2로 받아친다(적 턴당 1회).', gaugeText: '방어로 공격을 막아내면 투지 +1(적 턴당 1회).',
+      special: { id: 'rally', name: '수호의 함성', slot: 'bonus', range: 0, target: 'self', text: '방어 +6, 다음 내 턴까지 근접 공격에 피해 3으로 반격.', block: 6, retaliate: 3 }, build: '방어·반격: 맞을 자리를 고르고, 쌓은 방어를 피해로 바꾼다.',
       deck: ['strike', 'strike', 'guard_up', 'guard_up', 'riposte', 'riposte', 'bulwark', 'shield_bash', 'taunt', 'dash', 'focus', 'mend'],
       perks: [[{ id: 'ara_guard', name: '굳건함', text: '기본 방어 +2.' }, { id: 'ara_van', name: '선봉', text: '전투 첫 턴 이동 +2.' }], [{ id: 'ara_counter', name: '응수', text: '모든 반격 피해 +2.' }, { id: 'ara_iron', name: '철의 의지', text: '최대 체력 +6.' }]] },
     noa: { id: 'noa', name: '노아', title: '그림자 길잡이', asset: 'actor.noa', hp: 26, move: 5, attack: { dmg: 3, range: 1, name: '쌍날 베기' },
-      passive: '이동 5. 기본 공격 후 이동 +1. 3칸 이상 움직인 턴에는 다음 적 턴의 첫 근접 피해 -2(회피).', build: '이동·밀치기·지형: 적을 벽과 가시덤불로 몰아 부딪히게 한다.',
+      passive: '이동 5. 기본 공격 후 이동 +1. 3칸 이상 움직인 턴에는 다음 적 턴의 첫 근접 피해 -2(회피).', gaugeText: '한 턴에 3칸 이상 움직이면 투지 +1(턴당 1회).',
+      special: { id: 'shadow', name: '그림자 난무', slot: 'main', range: 3, target: 'enemy', text: '3칸 안의 적 곁으로 순간이동해 피해 5. 이후 이동 +2. (뒤잡기 조건도 채워진다)', dmg: 5 }, build: '이동·밀치기·지형: 적을 벽과 가시덤불로 몰아 부딪히게 한다.',
       deck: ['strike', 'strike', 'shove', 'shove', 'hook', 'vault', 'backstab', 'backstab', 'dash', 'dash', 'harvest', 'mend'],
       perks: [[{ id: 'noa_feet', name: '가벼운 발', text: '이동 +1.' }, { id: 'noa_slam', name: '약점 포착', text: '충돌·지형 피해 +2.' }], [{ id: 'noa_ambush', name: '기습 달인', text: '기습 피해 +3.' }, { id: 'noa_loot', name: '약탈자의 손', text: '상자 판정 +2.' }]] },
     lumi: { id: 'lumi', name: '루미', title: '달빛 술사', asset: 'actor.lumi', hp: 24, move: 4, attack: { dmg: 3, range: 3, name: '마력탄' },
-      passive: '기본 공격 사거리 3. 상태이상에 걸린 적에게 주는 직접 피해 +1.', build: '상태이상·연쇄: 불과 독을 쌓고 기폭·전이로 한꺼번에 터뜨린다.',
+      passive: '기본 공격 사거리 3. 상태이상에 걸린 적에게 주는 직접 피해 +1.', gaugeText: '화상·중독을 부여하면 투지 +1(턴당 1회).',
+      special: { id: 'moonburst', name: '달빛 폭주', slot: 'main', range: 4, target: 'enemy', text: '대상과 주변 1칸의 적(최대 4)에게 피해 2, 화상 2.', dmg: 2, burn: 2, area: 1, maxTargets: 4 }, build: '상태이상·연쇄: 불과 독을 쌓고 기폭·전이로 한꺼번에 터뜨린다.',
       deck: ['ignite', 'ignite', 'frost', 'frost', 'detonate', 'detonate', 'spark', 'spark', 'guard_up', 'focus', 'regroup', 'mend'],
       perks: [[{ id: 'lumi_ember', name: '잔불', text: '화상을 부여할 때 +1.' }, { id: 'lumi_frost', name: '혹한', text: '서리 못 피해 +2.' }], [{ id: 'lumi_chain', name: '연쇄 촉매', text: '상태이상 적 추가 피해 +1 → +2.' }, { id: 'lumi_ward', name: '비전 방벽', text: '전투 시작 시 방어 4.' }]] }
   };

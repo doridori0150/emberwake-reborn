@@ -49,6 +49,8 @@ button.small { padding:3px 8px; font-size:.85rem; }
 .pips { display:flex; gap:10px; margin-top:5px; align-items:center; flex-wrap:wrap; } .pips span { white-space:nowrap; }
 .pip { display:inline-block; width:10px; height:10px; margin-left:2px; border-radius:50%; background:var(--green); } .pip.off { background:#33403a; }
 .pip.main { border-radius:2px; transform:rotate(45deg); background:var(--amber); } .pip.bonus { border-radius:2px; background:var(--teal); } .pip.main.off,.pip.bonus.off { background:#3a3a3a; }
+.pip.gauge { background:var(--violet); } .pip.gauge.off { background:#352d4a; }
+.basics button.special { border-color:#5b4a86; color:#e3d4ff; } .basics button.special:disabled { color:var(--dim); }
 .blockbadge { color:#9fd0ff; font-weight:700; }
 .goal-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
 .bagmini { display:grid; grid-template-columns:repeat(4,1fr); gap:3px; margin-top:6px; } .bagmini div { height:30px; border:1px solid var(--line); border-radius:5px; display:flex; align-items:center; justify-content:center; gap:2px; font-size:.78rem; background:#12171a; } .bagmini img { width:18px; height:18px; image-rendering:pixelated; }
@@ -64,8 +66,8 @@ button.small { padding:3px 8px; font-size:.85rem; }
 .prompt { flex:none; min-height:32px; padding:6px 14px; background:#101518; border-top:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap; font-size:.92rem; }
 .prompt .opt { display:inline-flex; gap:6px; align-items:center; padding:2px 8px; border:1px solid var(--line); border-radius:6px; cursor:pointer; background:transparent; }
 .prompt .opt:hover { border-color:var(--amber); } .prompt .opt .cost { color:var(--amber); } .prompt .opt .note { color:var(--dim); font-size:.85em; } .prompt .warn { color:#f3a29d; } .prompt .dimtxt { color:var(--dim); }
-.actionbar { flex:none; display:flex; gap:12px; align-items:stretch; padding:2px 12px 10px; background:#12171a; border-top:1px solid var(--line); height:152px; }
-.basics { display:flex; flex-direction:column; gap:5px; justify-content:center; width:132px; flex:none; } .basics button { text-align:left; padding:5px 8px; font-size:.88rem; white-space:nowrap; }
+.actionbar { flex:none; display:flex; gap:12px; align-items:stretch; padding:2px 12px 10px; background:#12171a; border-top:1px solid var(--line); height:164px; }
+.basics { display:flex; flex-direction:column; gap:4px; justify-content:center; width:168px; flex:none; } .basics button { text-align:left; padding:4px 8px; font-size:.85rem; white-space:nowrap; }
 .basics button.sel { border-color:var(--amber); background:#2a2116; }
 .hand { flex:1; min-width:0; display:flex; gap:8px; overflow-x:auto; align-items:stretch; padding:9px 2px 2px; }
 .card { flex:0 0 116px; border:2px solid #39454c; border-radius:10px; background:linear-gradient(#222b31,#161c20); padding:6px; display:flex; flex-direction:column; gap:3px; text-align:left; position:relative; cursor:pointer; min-height:0; }

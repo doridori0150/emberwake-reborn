@@ -121,7 +121,7 @@
 
   function makeEnemy(kind, x, y, ids, rs, grid) {
     const d = ENEMIES[kind];
-    const e = { id: 'e' + (ids.n++), kind, x, y, hp: d.hp, maxHp: d.hp, armor: d.armor || 0, state: 'idle', facing: 'left', st: {}, intent: null, step: 0 };
+    const e = { id: 'e' + (ids.n++), kind, x, y, hp: d.hp, maxHp: d.hp, armor: d.armor || 0, state: 'idle', facing: x < 6 ? 'right' : 'left' /* 방 가운데를 바라본다 */, st: {}, intent: null, step: 0 };
     // 근접 적 일부는 두 지점을 오가며 순찰한다(탐사 중 내 2걸음마다 1걸음).
     if (rs && grid && (d.ai === 'melee' || d.ai === 'pack') && R.int(rs, 'map', 2) === 0) {
       const dir = R.pick(rs, 'map', [[1, 0], [-1, 0], [0, 1], [0, -1]]); let len = 0, cx = x, cy = y;
