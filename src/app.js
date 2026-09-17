@@ -466,7 +466,8 @@
         }
         list.forEach((sh, i) => {
           const x = sx(i);
-          gfx.frameFit(ctx, 'tiles.labyrinth', 'prop.table', x, 150, 90, 70);
+          if (gfx.image('town.shop_counter')) gfx.drawFit(ctx, 'town.shop_counter', x, 168, 120, 96);
+          else gfx.frameFit(ctx, 'tiles.labyrinth', 'prop.table', x, 150, 90, 70);
           if (left[i] > 0) gfx.drawFit(ctx, 'material.' + (sh.mat === 'moonshard' ? 'crystal' : sh.mat), x, 112, 34, 34);
           ctx.font = 'bold 13px sans-serif';
           ctx.textAlign = 'center';

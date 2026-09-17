@@ -21,6 +21,11 @@
     box.innerHTML = '';
     box.style.backgroundImage = '';
     if (!p) return;
+    const img = p.image && ER.gfx?.url(p.image); /* 매니페스트에 등록된 초상화 그림 */
+    if (img) {
+      box.style.backgroundImage = 'url("' + img + '")';
+      return;
+    }
     if (p.src) {
       box.style.backgroundImage = 'url("' + p.src + '")';
       return;

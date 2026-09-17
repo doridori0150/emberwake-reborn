@@ -382,11 +382,17 @@
               ctx.fillRect(x * T, y * T, T, T);
             }
           } else {
-            ctx.fillStyle = (x + y) % 2 ? '#36502f' : '#3a5633';
-            ctx.fillRect(x * T, y * T, T, T);
+            // 잔디 타일(이미지 생성 에셋). 복구가 진행되면 군데군데 들꽃이 핀다. 그림이 없으면 단색으로 대신한다.
+            const flowers = total >= 2 && (x * 7 + y * 13) % 5 === 0,
+              tile = gfx.image(flowers ? 'town.tile_grass_flowers' : 'town.tile_grass');
+            if (tile) ctx.drawImage(tile, x * T, y * T, T, T);
+            else {
+              ctx.fillStyle = (x + y) % 2 ? '#36502f' : '#3a5633';
+              ctx.fillRect(x * T, y * T, T, T);
+            }
           }
         }
-      for (const [tx, ty, kind] of tuft) {
+      for (const [tx, ty, kind] of gfx.image('town.tile_grass') ? [] : tuft) {
         if (
           tx < cam.x - 20 ||
           tx > cam.x + CW + 20 ||
@@ -492,6 +498,15 @@
         gfx.sprite(ctx, asset, frame, cx, by - Math.sin(now / 450 + cx) * 1.2, 56, false, tint || null);
       };
       for (const it of items) {
+        if (it.tree && gfx.image(it.v === 1 ? 'town.tree_pine' : 'town.tree_oak')) {
+          /* 나무 그림(이미지 생성 에셋). 없으면 아래의 도형 나무로 대신한다. */
+          ctx.fillStyle = 'rgba(0,0,0,.3)';
+          ctx.beginPath();
+          ctx.ellipse(it.cx, it.by - 2, 30, 9, 0, 0, 7);
+          ctx.fill();
+          gfx.drawFit(ctx, it.v === 1 ? 'town.tree_pine' : 'town.tree_oak', it.cx, it.by + 6, 120, it.v === 1 ? 150 : 140);
+          continue;
+        }
         if (it.tree) {
           ctx.fillStyle = 'rgba(0,0,0,.28)';
           ctx.beginPath();
@@ -535,7 +550,14 @@
                     ? 'up'
                     : 'down'
                 : n.dir || 'down';
-          person(n.asset, it.cx, it.by, face, 'idle', n.tint, now);
+          if (n.sprite && gfx.image(n.sprite)) {
+            /* 주민 전용 그림(서 있는 한 장). 없으면 대원 스프라이트에 색 필터를 입혀 대신한다. */
+            ctx.fillStyle = 'rgba(0,0,0,.35)';
+            ctx.beginPath();
+            ctx.ellipse(it.cx, it.by, 20, 7, 0, 0, 7);
+            ctx.fill();
+            gfx.drawFit(ctx, n.sprite, it.cx, it.by + 2 - Math.sin(now / 450 + it.cx) * 1.2, 56, 88);
+          } else person(n.asset, it.cx, it.by, face, 'idle', n.tint, now);
           this.rects[id] = { x: it.cx - 26, y: it.by - 64, w: 52, h: 72 };
           const can = n.role && G.target(Gs, { kind: 'facility', id: n.role }).can,
             shop = n.role === 'stash' && Gs.facilities.stash >= 1 && !Gs.shop.done;

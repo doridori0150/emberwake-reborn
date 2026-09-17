@@ -2143,6 +2143,156 @@
    "src": "assets/icon-card-renew.webp",
    "w": 79,
    "h": 96
+  },
+  "town.bush": {
+   "kind": "image",
+   "src": "assets/town/bush.webp",
+   "w": 120,
+   "h": 86
+  },
+  "town.icon_daggers": {
+   "kind": "image",
+   "src": "assets/town/icon_daggers.webp",
+   "w": 128,
+   "h": 127
+  },
+  "town.icon_expedition_pack": {
+   "kind": "image",
+   "src": "assets/town/icon_expedition_pack.webp",
+   "w": 123,
+   "h": 128
+  },
+  "town.icon_focusrod": {
+   "kind": "image",
+   "src": "assets/town/icon_focusrod.webp",
+   "w": 122,
+   "h": 128
+  },
+  "town.icon_framepack": {
+   "kind": "image",
+   "src": "assets/town/icon_framepack.webp",
+   "w": 120,
+   "h": 128
+  },
+  "town.icon_hookblade": {
+   "kind": "image",
+   "src": "assets/town/icon_hookblade.webp",
+   "w": 128,
+   "h": 127
+  },
+  "town.icon_longsword": {
+   "kind": "image",
+   "src": "assets/town/icon_longsword.webp",
+   "w": 128,
+   "h": 128
+  },
+  "town.icon_starstaff": {
+   "kind": "image",
+   "src": "assets/town/icon_starstaff.webp",
+   "w": 123,
+   "h": 128
+  },
+  "town.icon_warhammer": {
+   "kind": "image",
+   "src": "assets/town/icon_warhammer.webp",
+   "w": 128,
+   "h": 128
+  },
+  "town.npc_elder": {
+   "kind": "image",
+   "src": "assets/town/npc_elder.webp",
+   "w": 66,
+   "h": 160
+  },
+  "town.npc_keeper": {
+   "kind": "image",
+   "src": "assets/town/npc_keeper.webp",
+   "w": 70,
+   "h": 160
+  },
+  "town.npc_scholar": {
+   "kind": "image",
+   "src": "assets/town/npc_scholar.webp",
+   "w": 65,
+   "h": 160
+  },
+  "town.npc_smith": {
+   "kind": "image",
+   "src": "assets/town/npc_smith.webp",
+   "w": 91,
+   "h": 160
+  },
+  "town.npc_trainer": {
+   "kind": "image",
+   "src": "assets/town/npc_trainer.webp",
+   "w": 69,
+   "h": 160
+  },
+  "town.portrait_elder": {
+   "kind": "image",
+   "src": "assets/town/portrait_elder.webp",
+   "w": 384,
+   "h": 512
+  },
+  "town.portrait_keeper": {
+   "kind": "image",
+   "src": "assets/town/portrait_keeper.webp",
+   "w": 384,
+   "h": 512
+  },
+  "town.portrait_scholar": {
+   "kind": "image",
+   "src": "assets/town/portrait_scholar.webp",
+   "w": 384,
+   "h": 512
+  },
+  "town.portrait_smith": {
+   "kind": "image",
+   "src": "assets/town/portrait_smith.webp",
+   "w": 384,
+   "h": 512
+  },
+  "town.portrait_trainer": {
+   "kind": "image",
+   "src": "assets/town/portrait_trainer.webp",
+   "w": 384,
+   "h": 512
+  },
+  "town.shop_counter": {
+   "kind": "image",
+   "src": "assets/town/shop_counter.webp",
+   "w": 224,
+   "h": 180
+  },
+  "town.shop_shelf": {
+   "kind": "image",
+   "src": "assets/town/shop_shelf.webp",
+   "w": 147,
+   "h": 200
+  },
+  "town.tile_grass": {
+   "kind": "image",
+   "src": "assets/town/tile_grass.webp",
+   "w": 128,
+   "h": 128
+  },
+  "town.tile_grass_flowers": {
+   "kind": "image",
+   "src": "assets/town/tile_grass_flowers.webp",
+   "w": 128,
+   "h": 128
+  },
+  "town.tree_oak": {
+   "kind": "image",
+   "src": "assets/town/tree_oak.webp",
+   "w": 225,
+   "h": 288
+  },
+  "town.tree_pine": {
+   "kind": "image",
+   "src": "assets/town/tree_pine.webp",
+   "w": 172,
+   "h": 288
   }
  }
 }

@@ -308,7 +308,7 @@
     const id = CR.id,
       x = GEAR[id],
       w = x.weapon,
-      icons = Object.keys(ER.ASSETS.assets).filter(a => a.startsWith('gear.')),
+      icons = Object.keys(ER.ASSETS.assets).filter(a => a.startsWith('gear.') || a.startsWith('town.icon_')),
       fxOf = D.gearEffects(x),
       re = () => renderCraft();
     main.innerHTML =

@@ -19,7 +19,7 @@
 ```bash
 npm start          # http://127.0.0.1:8812/  (node tools/server.cjs, 의존성 설치 불필요)
                    # 콘텐츠 도구: http://127.0.0.1:8812/editor.html
-npm test           # 규칙·생성·경제·저장·콘텐츠 자동 검사 37개
+npm test           # 규칙·생성·경제·저장·콘텐츠 자동 검사 41개
 npm run build      # dist/EmberwakeReborn-Portable.html 생성
 npm run sim -- verdant ara 200 loot   # 봇 원정 통계(난이도 근사치)
 node tools/smart-bot.cjs 100 [grown]   # 대원별 스타일 전투 봇: 장면별 승률·잔여 HP(균형 방향 확인용)
@@ -97,7 +97,7 @@ src/dialog.js       대화창(초상화·페이지·선택지). 게임과 도구
 src/audio.js        합성 효과음
 src/bot.js          대원별 전투 봇(모의전). 도구와 tools/smart-bot.cjs 가 함께 쓴다
 editor.html · src/editor.js · src/editor2.js · src/contentfmt.js   콘텐츠 도구와 content.js 포맷터
-tools/              server · build · import-assets · sim · boss-duel
+tools/              server · build · import-assets · town-assets · process-generated.py · sim · boss-duel  (코드 모양은 `npx prettier --write "src/**/*.js" "tools/**/*.cjs" "tests/**/*.cjs"`)
 tests/core.test.cjs 자동 검사
 docs/DESIGN.md      진단·규칙·경제·세 빌드  /  docs/WORKLOG.md  개선 주기·직접 플레이 기록·남은 문제
 ```

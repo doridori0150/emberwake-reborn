@@ -1299,6 +1299,8 @@
   };
   const NPCS = {
     smith: {
+      sprite: 'town.npc_smith',
+      portrait: 'town.portrait_smith',
       name: '대장장이 브론',
       asset: 'actor.ara',
       tint: 'hue-rotate(25deg) saturate(.6) brightness(.8)',
@@ -1310,6 +1312,8 @@
       greetRuin: ['화로가 식은 지 오래야… 목재와 철광만 있으면 다시 불을 붙일 수 있네.']
     },
     keeper: {
+      sprite: 'town.npc_keeper',
+      portrait: 'town.portrait_keeper',
       name: '창고지기 미라',
       asset: 'actor.lumi',
       tint: 'sepia(.7) saturate(1.4) hue-rotate(-20deg)',
@@ -1321,6 +1325,8 @@
       greetRuin: ['선반만 고치면 가게를 다시 열 수 있을 텐데.']
     },
     trainer: {
+      sprite: 'town.npc_trainer',
+      portrait: 'town.portrait_trainer',
       name: '교관 도르간',
       asset: 'actor.ara',
       tint: 'hue-rotate(200deg) saturate(.8)',
@@ -1332,6 +1338,8 @@
       greetRuin: ['훈련장이 이 꼴이어서야… 약초와 섬유부터 구해 오게.']
     },
     scholar: {
+      sprite: 'town.npc_scholar',
+      portrait: 'town.portrait_scholar',
       name: '연구원 에린',
       asset: 'actor.lumi',
       tint: 'hue-rotate(95deg) saturate(.9)',
@@ -1343,6 +1351,8 @@
       greetRuin: ['망원경이 깨져 있어. 수지와 고문서가 있으면 고칠 수 있을 텐데.']
     },
     elder: {
+      sprite: 'town.npc_elder',
+      portrait: 'town.portrait_elder',
       name: '촌장 할다',
       asset: 'actor.noa',
       tint: 'grayscale(.8) brightness(1.15)',
@@ -1368,7 +1378,7 @@
   );
   replaceItems(NPCS, CONTENT.npcs);
   for (const [k, n] of Object.entries(NPCS))
-    if (!PORTRAITS['npc.' + k]) PORTRAITS['npc.' + k] = { name: n.name, asset: n.asset, tint: n.tint, auto: true };
+    if (!PORTRAITS['npc.' + k]) PORTRAITS['npc.' + k] = { name: n.name, asset: n.asset, tint: n.tint, image: n.portrait, auto: true };
   const EVENTS = CONTENT.events || [];
   replaceItems(ENEMIES, CONTENT.enemies);
   for (const q of Object.values(REGIONS)) for (const def of Object.values(q.rooms_def)) def.baseEnemies = def.enemies.map(gp => gp.slice());

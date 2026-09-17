@@ -35,14 +35,14 @@
     { "region": "archive", "room": "hall2", "group": ["nest", "hexer"] }
   ],
   "gear": {
-    "longsword": { "name": "길드 장검", "slot": "weapon", "heroes": ["ara"], "tier": 1, "icon": "gear.sword", "cost": { "ore": 3, "wood": 1 }, "weapon": { "dice": "1d8+1", "name": "장검 베기" }, "options": ["keen", "weighted"], "optionSlots": 1 },
-    "warhammer": { "name": "파수병의 전쟁망치", "slot": "weapon", "heroes": ["ara"], "tier": 2, "icon": "gear.sword", "cost": { "ore": 4, "coal": 3 }, "weapon": { "dice": "2d4+2", "name": "망치 내려치기" }, "slam": 1, "options": ["keen", "weighted"], "optionSlots": 2 },
-    "daggers": { "name": "그림자 쌍단검", "slot": "weapon", "heroes": ["noa"], "tier": 1, "icon": "gear.sword", "cost": { "ore": 2, "hide": 2 }, "weapon": { "dice": "2d3+1", "name": "쌍단검 베기" }, "crit": 5, "options": ["keen", "weighted"], "optionSlots": 1 },
-    "hookblade": { "name": "갈고리 칼", "slot": "weapon", "heroes": ["noa"], "tier": 2, "icon": "gear.sword", "cost": { "ore": 3, "coal": 2, "hide": 2 }, "weapon": { "dice": "1d6+2", "name": "갈고리 베기" }, "crit": 10, "options": ["keen", "weighted"], "optionSlots": 2 },
-    "focusrod": { "name": "수지 촉매봉", "slot": "weapon", "heroes": ["lumi"], "tier": 1, "icon": "gear.tonic", "cost": { "wood": 2, "resin": 2 }, "weapon": { "dice": "1d6+1", "name": "촉매탄" }, "options": ["keen", "weighted"], "optionSlots": 1 },
-    "starstaff": { "name": "별빛 지팡이", "slot": "weapon", "heroes": ["lumi"], "tier": 2, "icon": "gear.tonic", "cost": { "wood": 3, "crystal": 2 }, "weapon": { "dice": "2d4", "range": 4, "name": "별빛탄" }, "options": ["keen", "weighted"], "optionSlots": 2 },
-    "framepack": { "name": "뼈대 배낭", "slot": "bag", "tier": 2, "icon": "gear.pack", "cost": { "hide": 3, "wood": 3, "coal": 1 }, "bag": 4, "options": ["pouch_ore", "pouch_herb", "reinforced"], "optionSlots": 2 },
-    "expedition": { "name": "원정대 등짐", "slot": "bag", "tier": 3, "icon": "gear.pack", "cost": { "hide": 4, "crystal": 2, "relic": 1 }, "bag": 6, "stackAll": 1, "options": ["pouch_ore", "pouch_herb", "reinforced"], "optionSlots": 3 }
+    "longsword": { "name": "길드 장검", "slot": "weapon", "heroes": ["ara"], "tier": 1, "icon": "town.icon_longsword", "cost": { "ore": 3, "wood": 1 }, "weapon": { "dice": "1d8+1", "name": "장검 베기" }, "options": ["keen", "weighted"], "optionSlots": 1 },
+    "warhammer": { "name": "파수병의 전쟁망치", "slot": "weapon", "heroes": ["ara"], "tier": 2, "icon": "town.icon_warhammer", "cost": { "ore": 4, "coal": 3 }, "weapon": { "dice": "2d4+2", "name": "망치 내려치기" }, "slam": 1, "options": ["keen", "weighted"], "optionSlots": 2 },
+    "daggers": { "name": "그림자 쌍단검", "slot": "weapon", "heroes": ["noa"], "tier": 1, "icon": "town.icon_daggers", "cost": { "ore": 2, "hide": 2 }, "weapon": { "dice": "2d3+1", "name": "쌍단검 베기" }, "crit": 5, "options": ["keen", "weighted"], "optionSlots": 1 },
+    "hookblade": { "name": "갈고리 칼", "slot": "weapon", "heroes": ["noa"], "tier": 2, "icon": "town.icon_hookblade", "cost": { "ore": 3, "coal": 2, "hide": 2 }, "weapon": { "dice": "1d6+2", "name": "갈고리 베기" }, "crit": 10, "options": ["keen", "weighted"], "optionSlots": 2 },
+    "focusrod": { "name": "수지 촉매봉", "slot": "weapon", "heroes": ["lumi"], "tier": 1, "icon": "town.icon_focusrod", "cost": { "wood": 2, "resin": 2 }, "weapon": { "dice": "1d6+1", "name": "촉매탄" }, "options": ["keen", "weighted"], "optionSlots": 1 },
+    "starstaff": { "name": "별빛 지팡이", "slot": "weapon", "heroes": ["lumi"], "tier": 2, "icon": "town.icon_starstaff", "cost": { "wood": 3, "crystal": 2 }, "weapon": { "dice": "2d4", "range": 4, "name": "별빛탄" }, "options": ["keen", "weighted"], "optionSlots": 2 },
+    "framepack": { "name": "뼈대 배낭", "slot": "bag", "tier": 2, "icon": "town.icon_framepack", "cost": { "hide": 3, "wood": 3, "coal": 1 }, "bag": 4, "options": ["pouch_ore", "pouch_herb", "reinforced"], "optionSlots": 2 },
+    "expedition": { "name": "원정대 등짐", "slot": "bag", "tier": 3, "icon": "town.icon_expedition_pack", "cost": { "hide": 4, "crystal": 2, "relic": 1 }, "bag": 6, "stackAll": 1, "options": ["pouch_ore", "pouch_herb", "reinforced"], "optionSlots": 3 }
   },
   "craftOptions": {
     "keen": { "name": "날 세우기", "slots": ["weapon"], "cost": { "ore": 2 }, "effects": { "bonus": 1 } },
