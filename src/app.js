@@ -200,7 +200,7 @@
       };
     if (!e) return done(-1);
     G.ensure(Gs);
-    const have = { gold: Gs.gold, mat: m => Gs.stock[m] || 0, flags: Gs.evFlags, hero: Gs.selected.hero };
+    const have = G.evHave(Gs);
     ER.dialog.open(e, { vars: { hero: D.HEROES[Gs.selected.hero].name }, can: c => ER.events.requireOk(c.require, have), onChoose: done });
   }
   // 주민에게 말 걸기: 그 주민에게 걸린 이벤트(npcTalk)가 있으면 그것을, 없으면 인사 한마디 뒤 맡은 시설 패널을 연다.

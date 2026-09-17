@@ -91,6 +91,18 @@
     return null;
   }
   const get = id => D.EVENTS.find(e => e.id === id) || null;
+  /* 선택지 하나를 처리하는 공용 절차: 고를 수 있는가 → 비용 지불 → 효과 적용 → 다음 이벤트.
+     어디서 돈·재료를 빼고 효과를 어떻게 넣는지는 부르는 쪽(hooks)이 안다: 원정은 가방, 길드는 창고.
+     hooks: { pay(require), effect(fx, event) }. 선택지가 없는 이벤트는 그냥 닫힌다. */
+  function choose(e, index, have, hooks) {
+    if (!e || !(e.choices || []).length) return { ok: true, choice: null, next: null, note: '' };
+    const c = e.choices[index];
+    if (!c) return { ok: false, reason: '선택지를 고르세요' };
+    if (!requireOk(c.require, have)) return { ok: false, reason: '조건이 모자란다' };
+    hooks.pay(c.require || {});
+    for (const fx of c.effects || []) hooks.effect(fx, e);
+    return { ok: true, choice: c, next: c.next && get(c.next) ? c.next : null, note: effectText(c.effects) };
+  }
   function lint(ev) {
     const out = [],
       t = TRIGGERS[ev.trigger?.type];
@@ -117,6 +129,6 @@
     });
     return out;
   }
-  ER.events = { TRIGGERS, EFFECTS, effectText, requireText, requireOk, matches, pick, get, lint };
+  ER.events = { TRIGGERS, EFFECTS, effectText, requireText, requireOk, matches, pick, get, lint, choose };
   if (typeof module === 'object') module.exports = ER;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

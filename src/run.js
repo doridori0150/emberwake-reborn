@@ -1794,6 +1794,152 @@
     return { ok: true };
   }
 
+  /* 카드 사용. 순서가 곧 규칙이다(난수 소비 순서 포함) — 바꾸면 미리보기·저장 재현이 어긋난다:
+     ① 조건 확인(preview) → ② 교전 시작·비용 지불·카드 이동 → ③ 공격 효과(굴림 → 치명타 → 대상별 피해·상태·밀치기 → 연쇄)
+     → ④ 자신에게 거는 효과 → ⑤ 특수 효과(CARD_SPECIALS) → ⑥ 전투 종료 확인 */
+  function rollCardDice(run, c) {
+    // 주사위 카드의 굴림. 무기 피해 카드(roll:'weapon')는 무기 주사위 + 카드 보정
+    const h = run.hero,
+      mode = h.rollMode || 'normal',
+      wf = c.roll === 'weapon' ? weapon(run) : null,
+      rolled = ER.dice.roll(wf ? wf.dice : c.roll, run.rng, { mode, bonus: wf ? wf.bonus + (c.dmg || 0) : 0 });
+    h.rollMode = null;
+    if (rolled.fixed && wf) return rolled; // 고정 피해(검사용 flatAttack)는 굴림 연출을 하지 않는다
+    run.stats.rolls.push({ what: c.name, formula: c.roll, total: rolled.total, cands: rolled.candidates, mode });
+    ev(run, { t: 'roll', label: c.name, formula: c.roll, total: rolled.total, cands: rolled.candidates, mode });
+    const how = rolled.candidates.length > 1 ? ' (' + rolled.candidates.join(' / ') + ' 중 높은 값)' : mode === 'steady' ? ' (고정)' : '';
+    say(run, c.name + ' 굴림 ' + c.roll + ' → ' + rolled.total + how);
+    return rolled;
+  }
+  function hitWithCard(run, c, e, o) {
+    // 대상 하나에 대한 피해·상태·밀치기. o: { rolled, crit, ambush, first }
+    if (e.hp <= 0) return;
+    const h = run.hero,
+      rm = room(run),
+      opt = { direct: true, pierce: c.pierce, ambush: o.ambush, noFocus: !o.first };
+    if (c.range > 1) ev(run, { t: 'proj', fx: h.x, fy: h.y, tx: e.x, ty: e.y, kind: c.burn ? 'fire' : c.root ? 'ice' : 'bolt' });
+    const base = o.rolled ? o.rolled.total : cardBase(run, c, e);
+    let n = base ? calcDamage(run, e, base, opt) : 0;
+    if (o.crit && n) n = critDamage(n);
+    if (c.special === 'detonate') {
+      const spread = alive(rm).filter(x => x !== e && dist(x, e) === 1);
+      e.st.burn = 0;
+      e.st.poison = 0;
+      ev(run, { t: 'blast', tiles: plus(e.x, e.y), kind: 'fire' });
+      hurtEnemy(run, e, n, 'burn');
+      spread.forEach(x => addStatus(run, x, 'burn', 1));
+    } else if (n) hurtEnemy(run, e, n);
+    if (c.range <= 1 && e.hp > 0 && e.intent?.type === 'aim') cancelIntent(run, e);
+    if (e.hp > 0) {
+      if (c.burn) addStatus(run, e, 'burn', c.burn);
+      if (c.poison) addStatus(run, e, 'poison', c.poison);
+      if (c.root) addStatus(run, e, 'root', c.root);
+    }
+    if (c.splashBurn)
+      alive(rm)
+        .filter(x => x !== e && dist(x, e) === 1)
+        .forEach(x => addStatus(run, x, 'burn', c.splashBurn));
+    if (e.hp > 0 && c.push) {
+      const dx = Math.sign(e.x - h.x),
+        dy = Math.sign(e.y - h.y);
+      shoveEnemy(run, e, dx, dx ? 0 : dy, c.push, false);
+    }
+    if (e.hp > 0 && c.pull) {
+      const dx = Math.sign(h.x - e.x),
+        dy = Math.sign(h.y - e.y);
+      shoveEnemy(run, e, dx, dx ? 0 : dy, c.pull, true);
+    }
+  }
+  function applyCardAttack(run, c, list, ambush, chainIds) {
+    const rolled = c.roll ? rollCardDice(run, c) : null;
+    const crit = list[0] && (rolled ? rolled.total : cardBase(run, c, list[0])) > 0 ? rollCrit(run, list[0]) : false;
+    list.forEach((e, i) => hitWithCard(run, c, e, { rolled, crit, ambush, first: i === 0 }));
+    if (c.special === 'chain' && list[0]) {
+      const src = list[0];
+      alive(room(run))
+        .filter(x => chainIds.includes(x.id))
+        .forEach(x => {
+          ev(run, { t: 'proj', fx: src.x, fy: src.y, tx: x.x, ty: x.y, kind: 'bolt' });
+          hurtEnemy(run, x, chainDmg(run, x), 'chain');
+        });
+    }
+    run.hero.focus = 0;
+  }
+  function applyCardSelf(run, c) {
+    const h = run.hero;
+    if (c.block) h.block += c.block;
+    if (c.retaliate) h.retaliate = c.retaliate;
+    if (c.heal) {
+      const n = Math.min(c.heal, h.maxHp - h.hp);
+      h.hp += n;
+      ev(run, { t: 'dmg', id: 'hero', x: h.x, y: h.y, n, kind: 'heal' });
+    }
+    if (c.move && run.mode === 'combat') h.mp += c.move;
+    if (c.focus) h.focus = c.focus;
+    if (c.draw) drawCards(run, c.draw);
+    if (c.special === 'thorns') h.thorns = 1;
+    if (c.special === 'harvest') h.harvest = 2;
+    if (c.special === 'fortune') h.rollMode = 'advantage';
+    if (c.special === 'steady') h.rollMode = 'steady';
+    if (c.special === 'lockpick') h.checkBonus = 4;
+  }
+  // 카드의 special 하나에 하나씩. (run, 카드, 행동) → 효과. 새 특수 카드는 여기에 한 줄 더한다.
+  const CARD_SPECIALS = {
+    smoke(run) {
+      run.hero.smoke = true;
+      alive(room(run)).forEach(e => {
+        if (e.intent?.type === 'aim') cancelIntent(run, e);
+      });
+    },
+    taunt(run) {
+      const h = run.hero,
+        rm = room(run);
+      alive(rm)
+        .filter(e => dist(e, h) <= 4 && dist(e, h) > 1)
+        .forEach(e => {
+          if (e.intent?.type === 'aim') cancelIntent(run, e);
+          if (e.state !== 'alert') {
+            e.state = 'alert';
+            ev(run, { t: 'alert', id: e.id });
+          }
+          const path = enemyPath(run, e, (x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) === 1);
+          if (!edef(e).boss) moveEnemy(run, e, path, 1);
+        });
+      if (run.mode === 'explore' && alertIn(rm).length) startCombat(run, false);
+    },
+    vault(run, c, a) {
+      const h = run.hero;
+      h.x = a.target.x;
+      h.y = a.target.y;
+      h.moved += 3;
+      ev(run, { t: 'move', id: 'hero', path: [[h.x, h.y]], jump: true });
+      reveal(run);
+      detect(run);
+    },
+    snare(run, c, a) {
+      room(run).objects.push({ id: 'o' + run.nextId++, kind: 'trap', x: a.target.x, y: a.target.y });
+    },
+    catalyst(run, c, a) {
+      const e = alive(room(run)).find(x => x.id === a.target.id);
+      if (e.st.burn) addStatus(run, e, 'burn', 2);
+      else addStatus(run, e, 'poison', 2);
+    },
+    scout(run) {
+      Object.values(room(run).doors)
+        .map(d => run.rooms[d.to])
+        .forEach(r => {
+          r.known = true;
+          Object.values(r.doors).forEach(d => (run.rooms[d.to].known = true));
+        });
+      say(run, '주변 방의 종류를 지도에 적었다.');
+    },
+    quake(run, c) {
+      const h = run.hero;
+      alive(room(run))
+        .filter(e => dist(e, h) === 1)
+        .forEach(e => shoveEnemy(run, e, e.x - h.x, e.y - h.y, c.push, false));
+    }
+  };
   function doCard(run, a) {
     const p = preview(run, a);
     if (!p.ok) return p;
@@ -1801,10 +1947,14 @@
       h = run.hero,
       rm = room(run),
       id = run.deck.hand[a.i];
-    let amb = false;
     const list = c.type === 'attack' ? targetsFor(run, c, a.target) : [];
-    if (c.special === 'chain' && list[0]) a = Object.assign({}, a, { chainIds: chainTargets(run, list[0]).map(o => o.id) });
-    if (c.type === 'attack' && list.length) ((amb = list.some(e => e.state === 'idle') && run.mode === 'explore'), engage(run, list[0]));
+    // 연쇄 대상은 피해를 주기 전에 정한다(미리보기와 같은 대상)
+    const chainIds = c.special === 'chain' && list[0] ? chainTargets(run, list[0]).map(o => o.id) : [];
+    let ambush = false;
+    if (c.type === 'attack' && list.length) {
+      ambush = list.some(e => e.state === 'idle') && run.mode === 'explore';
+      engage(run, list[0]);
+    }
     if (c.special === 'catalyst' || (c.type !== 'attack' && c.target === 'enemy')) {
       const e = alive(rm).find(x => x.id === a.target.id);
       if (e) engage(run, e);
@@ -1822,135 +1972,9 @@
       anim: c.type === 'attack' && c.range <= 1 && !c.special ? 'attack' : 'skill',
       card: c.id
     });
-    if (c.type === 'attack') {
-      let rolled = null;
-      if (c.roll) {
-        const mode = h.rollMode || 'normal',
-          wf = c.roll === 'weapon' ? weapon(run) : null;
-        rolled = ER.dice.roll(wf ? wf.dice : c.roll, run.rng, { mode, bonus: wf ? wf.bonus + (c.dmg || 0) : 0 });
-        if (rolled.fixed && wf) {
-          h.rollMode = null;
-        } else {
-          h.rollMode = null;
-          run.stats.rolls.push({ what: c.name, formula: c.roll, total: rolled.total, cands: rolled.candidates, mode });
-          ev(run, { t: 'roll', label: c.name, formula: c.roll, total: rolled.total, cands: rolled.candidates, mode });
-          say(
-            run,
-            c.name +
-              ' 굴림 ' +
-              c.roll +
-              ' → ' +
-              rolled.total +
-              (rolled.candidates.length > 1 ? ' (' + rolled.candidates.join(' / ') + ' 중 높은 값)' : mode === 'steady' ? ' (고정)' : '')
-          );
-        }
-      }
-      const crit = list[0] && (rolled ? rolled.total : cardBase(run, c, list[0])) > 0 ? rollCrit(run, list[0]) : false;
-      list.forEach((e, i) => {
-        if (e.hp <= 0) return;
-        const opt = { direct: true, pierce: c.pierce, ambush: amb, noFocus: i > 0 };
-        if (c.range > 1) ev(run, { t: 'proj', fx: h.x, fy: h.y, tx: e.x, ty: e.y, kind: c.burn ? 'fire' : c.root ? 'ice' : 'bolt' });
-        const base = rolled ? rolled.total : cardBase(run, c, e);
-        let n = base ? calcDamage(run, e, base, opt) : 0;
-        if (crit && n) n = critDamage(n);
-        if (c.special === 'detonate') {
-          const spread = alive(rm).filter(o => o !== e && dist(o, e) === 1);
-          e.st.burn = 0;
-          e.st.poison = 0;
-          ev(run, { t: 'blast', tiles: plus(e.x, e.y), kind: 'fire' });
-          hurtEnemy(run, e, n, 'burn');
-          spread.forEach(o => addStatus(run, o, 'burn', 1));
-        } else if (n) hurtEnemy(run, e, n);
-        if (c.range <= 1 && e.hp > 0 && e.intent?.type === 'aim') cancelIntent(run, e);
-        if (e.hp > 0) {
-          if (c.burn) addStatus(run, e, 'burn', c.burn);
-          if (c.poison) addStatus(run, e, 'poison', c.poison);
-          if (c.root) addStatus(run, e, 'root', c.root);
-        }
-        if (c.splashBurn)
-          alive(rm)
-            .filter(o => o !== e && dist(o, e) === 1)
-            .forEach(o => addStatus(run, o, 'burn', c.splashBurn));
-        if (e.hp > 0 && c.push) {
-          const dx = Math.sign(e.x - h.x),
-            dy = Math.sign(e.y - h.y);
-          shoveEnemy(run, e, dx, dx ? 0 : dy, c.push, false);
-        }
-        if (e.hp > 0 && c.pull) {
-          const dx = Math.sign(h.x - e.x),
-            dy = Math.sign(h.y - e.y);
-          shoveEnemy(run, e, dx, dx ? 0 : dy, c.pull, true);
-        }
-      });
-      if (c.special === 'chain' && list[0]) {
-        const src = list[0];
-        (a.chainIds ? alive(rm).filter(o => a.chainIds.includes(o.id)) : []).forEach(o => {
-          ev(run, { t: 'proj', fx: src.x, fy: src.y, tx: o.x, ty: o.y, kind: 'bolt' });
-          hurtEnemy(run, o, chainDmg(run, o), 'chain');
-        });
-      }
-      h.focus = 0;
-    }
-    if (c.block) h.block += c.block;
-    if (c.retaliate) h.retaliate = c.retaliate;
-    if (c.heal) {
-      const n = Math.min(c.heal, h.maxHp - h.hp);
-      h.hp += n;
-      ev(run, { t: 'dmg', id: 'hero', x: h.x, y: h.y, n, kind: 'heal' });
-    }
-    if (c.move && run.mode === 'combat') h.mp += c.move;
-    if (c.focus) h.focus = c.focus;
-    if (c.draw) drawCards(run, c.draw);
-    if (c.special === 'thorns') h.thorns = 1;
-    if (c.special === 'harvest') h.harvest = 2;
-    if (c.special === 'fortune') h.rollMode = 'advantage';
-    if (c.special === 'steady') h.rollMode = 'steady';
-    if (c.special === 'lockpick') h.checkBonus = 4;
-    if (c.special === 'smoke') {
-      h.smoke = true;
-      alive(rm).forEach(e => {
-        if (e.intent?.type === 'aim') cancelIntent(run, e);
-      });
-    }
-    if (c.special === 'taunt')
-      alive(rm)
-        .filter(e => dist(e, h) <= 4 && dist(e, h) > 1)
-        .forEach(e => {
-          if (e.intent?.type === 'aim') cancelIntent(run, e);
-          if (e.state !== 'alert') {
-            e.state = 'alert';
-            ev(run, { t: 'alert', id: e.id });
-          }
-          const path = enemyPath(run, e, (x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) === 1);
-          if (!edef(e).boss) moveEnemy(run, e, path, 1);
-        });
-    if (c.special === 'taunt' && run.mode === 'explore' && alertIn(rm).length) startCombat(run, false);
-    if (c.special === 'vault') {
-      h.x = a.target.x;
-      h.y = a.target.y;
-      h.moved += 3;
-      ev(run, { t: 'move', id: 'hero', path: [[h.x, h.y]], jump: true });
-      reveal(run);
-      detect(run);
-    }
-    if (c.special === 'snare') rm.objects.push({ id: 'o' + run.nextId++, kind: 'trap', x: a.target.x, y: a.target.y });
-    if (c.special === 'catalyst') {
-      const e = alive(rm).find(x => x.id === a.target.id);
-      if (e.st.burn) addStatus(run, e, 'burn', 2);
-      else addStatus(run, e, 'poison', 2);
-    }
-    if (c.special === 'scout') {
-      const near = Object.values(rm.doors).map(d => run.rooms[d.to]);
-      near.forEach(r => {
-        r.known = true;
-        Object.values(r.doors).forEach(d => (run.rooms[d.to].known = true));
-      });
-      say(run, '주변 방의 종류를 지도에 적었다.');
-    }
-    if (c.special === 'quake')
-      alive(rm)
-        .filter(e => dist(e, h) === 1)
-        .forEach(e => shoveEnemy(run, e, e.x - h.x, e.y - h.y, c.push, false));
+    if (c.type === 'attack') applyCardAttack(run, c, list, ambush, chainIds);
+    applyCardSelf(run, c);
+    if (CARD_SPECIALS[c.special]) CARD_SPECIALS[c.special](run, c, a);
     checkCombatEnd(run);
     return { ok: true };
   }
@@ -2348,42 +2372,43 @@
         if (!run.bag[i].qty) run.bag.splice(i, 1);
       }
   }
-  function doEvent(run, a) {
-    const pe = run.pendingEvent,
-      e = pe && ER.events.get(pe.id);
-    if (!pe) return { ok: false, reason: '진행 중인 이벤트가 없다' };
+  // 원정 중 이벤트의 비용·효과: 가방에서 빼고, 넘치는 재료는 발밑에 둔다.
+  function payEvent(run, req) {
+    if (req.gold) run.gold -= req.gold;
+    for (const [m, n] of Object.entries(req.mat || {})) takeMat(run, m, n);
+  }
+  function applyEventEffect(run, fx, e) {
     const h = run.hero;
-    let next = null;
-    if (e && (e.choices || []).length) {
-      const c = e.choices[a.choice];
-      if (!c) return { ok: false, reason: '선택지를 고르세요' };
-      if (!ER.events.requireOk(c.require, evHave(run))) return { ok: false, reason: '조건이 모자란다' };
-      if (c.require?.gold) run.gold -= c.require.gold;
-      for (const [m, n] of Object.entries(c.require?.mat || {})) takeMat(run, m, n);
-      for (const fx of c.effects || []) {
-        if (fx.type === 'gold') run.gold = Math.max(0, run.gold + fx.n);
-        else if (fx.type === 'mat') {
-          if (fx.n > 0) {
-            const left = addBag(run, fx.mat, fx.n);
-            if (left) dropPile(run, h.x, h.y, fx.mat, left);
-          } else takeMat(run, fx.mat, -fx.n);
-        } else if (fx.type === 'hp') {
-          const before = h.hp;
-          h.hp = Math.max(1, Math.min(h.maxHp, h.hp + fx.n));
-          if (h.hp !== before)
-            ev(run, { t: 'dmg', id: 'hero', x: h.x, y: h.y, n: Math.abs(h.hp - before), kind: h.hp > before ? 'heal' : 'hit' });
-        } else if (fx.type === 'time') advance(run, Math.max(0, fx.n));
-        else if (fx.type === 'gauge') h.gauge = Math.max(0, Math.min(RULES.gauge.max, (h.gauge || 0) + fx.n));
-        else if (fx.type === 'bandage') run.items.bandage = Math.max(0, (run.items.bandage || 0) + fx.n);
-        else if (fx.type === 'flag') run.evFlags[fx.flag] = true;
-        else if (fx.type === 'unflag') delete run.evFlags[fx.flag];
-        else if (fx.type === 'card') run.eventDraft = e.name || '이벤트';
-      }
-      say(run, '[' + (e.name || e.id) + '] ' + c.label + (ER.events.effectText(c.effects) ? ' → ' + ER.events.effectText(c.effects) : ''));
-      next = c.next && ER.events.get(c.next) ? c.next : null;
-    }
+    if (fx.type === 'gold') run.gold = Math.max(0, run.gold + fx.n);
+    else if (fx.type === 'mat') {
+      if (fx.n > 0) {
+        const left = addBag(run, fx.mat, fx.n);
+        if (left) dropPile(run, h.x, h.y, fx.mat, left);
+      } else takeMat(run, fx.mat, -fx.n);
+    } else if (fx.type === 'hp') {
+      const before = h.hp;
+      h.hp = Math.max(1, Math.min(h.maxHp, h.hp + fx.n));
+      if (h.hp !== before)
+        ev(run, { t: 'dmg', id: 'hero', x: h.x, y: h.y, n: Math.abs(h.hp - before), kind: h.hp > before ? 'heal' : 'hit' });
+    } else if (fx.type === 'time') advance(run, Math.max(0, fx.n));
+    else if (fx.type === 'gauge') h.gauge = Math.max(0, Math.min(RULES.gauge.max, (h.gauge || 0) + fx.n));
+    else if (fx.type === 'bandage') run.items.bandage = Math.max(0, (run.items.bandage || 0) + fx.n);
+    else if (fx.type === 'flag') run.evFlags[fx.flag] = true;
+    else if (fx.type === 'unflag') delete run.evFlags[fx.flag];
+    else if (fx.type === 'card') run.eventDraft = e.name || '이벤트';
+  }
+  function doEvent(run, a) {
+    const pe = run.pendingEvent;
+    if (!pe) return { ok: false, reason: '진행 중인 이벤트가 없다' };
+    const e = ER.events.get(pe.id),
+      r = ER.events.choose(e, a.choice, evHave(run), {
+        pay: req => payEvent(run, req),
+        effect: (fx, src) => applyEventEffect(run, fx, src)
+      });
+    if (!r.ok) return r;
+    if (r.choice) say(run, '[' + (e.name || e.id) + '] ' + r.choice.label + (r.note ? ' → ' + r.note : ''));
     run.pendingEvent = null;
-    if (next) openEvent(run, next);
+    if (r.next) openEvent(run, r.next);
     else if (run.eventQueue?.length) openEvent(run, run.eventQueue.shift());
     if (!run.pendingEvent && run.eventDraft) {
       const src = run.eventDraft;

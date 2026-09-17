@@ -472,32 +472,30 @@
     G.pendingEvent = { id };
     if (!G.evSeen.includes(id)) G.evSeen.push(id);
   }
+  // 길드 이벤트의 비용·효과: 창고와 금화에서 바로 처리한다(원정 전용 효과는 검사에서 걸러진다).
+  function payEvent(G, req) {
+    if (req.gold) G.gold -= req.gold;
+    for (const [m, n] of Object.entries(req.mat || {})) G.stock[m] = (G.stock[m] || 0) - n;
+  }
+  function applyEventEffect(G, fx) {
+    if (fx.type === 'gold') G.gold = Math.max(0, G.gold + fx.n);
+    else if (fx.type === 'mat') G.stock[fx.mat] = Math.max(0, (G.stock[fx.mat] || 0) + fx.n);
+    else if (fx.type === 'flag') G.evFlags[fx.flag] = true;
+    else if (fx.type === 'unflag') delete G.evFlags[fx.flag];
+  }
   function answer(G, choice) {
     ensure(G);
-    const pe = G.pendingEvent,
-      e = pe && ER.events.get(pe.id);
+    const pe = G.pendingEvent;
     if (!pe) return { ok: false, reason: '진행 중인 이벤트가 없다' };
-    let next = null,
-      note = '';
-    if (e && (e.choices || []).length) {
-      const c = e.choices[choice];
-      if (!c) return { ok: false, reason: '선택지를 고르세요' };
-      if (!ER.events.requireOk(c.require, evHave(G))) return { ok: false, reason: '조건이 모자란다' };
-      if (c.require?.gold) G.gold -= c.require.gold;
-      for (const [m, n] of Object.entries(c.require?.mat || {})) G.stock[m] = (G.stock[m] || 0) - n;
-      for (const fx of c.effects || []) {
-        if (fx.type === 'gold') G.gold = Math.max(0, G.gold + fx.n);
-        else if (fx.type === 'mat') G.stock[fx.mat] = Math.max(0, (G.stock[fx.mat] || 0) + fx.n);
-        else if (fx.type === 'flag') G.evFlags[fx.flag] = true;
-        else if (fx.type === 'unflag') delete G.evFlags[fx.flag];
-      }
-      note = ER.events.effectText(c.effects);
-      next = c.next && ER.events.get(c.next) ? c.next : null;
-    }
+    const r = ER.events.choose(ER.events.get(pe.id), choice, evHave(G), {
+      pay: req => payEvent(G, req),
+      effect: fx => applyEventEffect(G, fx)
+    });
+    if (!r.ok) return r;
     G.pendingEvent = null;
-    if (next) openEvent(G, next);
+    if (r.next) openEvent(G, r.next);
     else if (G.eventQueue.length) openEvent(G, G.eventQueue.shift());
-    return { ok: true, note };
+    return { ok: true, note: r.note };
   }
 
   function mods(G) {
@@ -626,6 +624,7 @@
   }
 
   ER.guild = {
+    evHave,
     sanitize,
     selectHero,
     shopSlots,
