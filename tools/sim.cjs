@@ -45,7 +45,7 @@ function bot(run, goal, trace) {
     if (retreat) { if (run.roomId === 0) { const portal = rm.objects.find(o => o.kind === 'portal'); const r = moveNear(portal.x, portal.y); if (r === 'there') act({ t: 'interact', id: portal.id, method: 'extract' }); else if (!r) stuck(); } else { const p = roomPath(0); if (!p || !goDoor(p[0]).ok) stuck(); } continue; }
     // 방 안의 남은 볼일
     const todo = rm.objects.filter(o => (o.kind === 'node' && o.qty > 0 && RUN.bagRoom(run, o.mat) > 0) || (o.kind === 'chest' && !o.opened) || (o.kind === 'device' && !o.on) || o.kind === 'objective' || (o.kind === 'camp' && !o.used && h.hp < h.maxHp * 0.6)).filter(o => !o.skip);
-    if (todo.length) { const o = todo[0]; const r = moveNear(o.x, o.y); if (!r || r === 'there') o.skip = true; continue; }
+    if (todo.length) { const o = todo[0]; const g = RUN.guardsNear(run, o)[0]; if (g) { const r = moveNear(g.x, g.y); if (r === 'there') act({ t: 'attack', id: g.id }); else if (!r) o.skip = true; continue; } const r = moveNear(o.x, o.y); if (!r || r === 'there') o.skip = true; continue; }
     const idle = RUN.alive(rm).filter(e => e.state === 'idle'); if (idle.length && goal === 'boss') { const e = idle[0]; const r = moveNear(e.x, e.y); if (r === 'there') { act({ t: 'attack', id: e.id }); } else if (!r) e.state = 'alert'; continue; }
     // 다음 방: 안 가본 방 우선(성소는 마지막)
     const unvisited = run.rooms.filter(r => !r.visited && roomPath(r.id)).sort((a, b) => (a.type === 'sanctum') - (b.type === 'sanctum') || (goal === 'loot' && a.danger) - (goal === 'loot' && b.danger) || roomPath(a.id).length - roomPath(b.id).length);

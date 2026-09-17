@@ -235,3 +235,14 @@ test('R3 발견 카드: 보물고 금고는 임시 카드 3장 중 1장을 제�
   const skip = mk('ara', 'draft2'); RUN.room(skip).objects.push({ id: 'oV', kind: 'chest', chest: 'vault', opened: false, x: skip.hero.x + 1, y: skip.hero.y }); RUN.act(skip, { t: 'interact', id: 'oV', method: 'safe' }); const g0 = skip.gold; RUN.act(skip, { t: 'draft', pick: -1 }); assert.equal(skip.gold, g0 + 5); assert.equal(skip.temp.length, 0);
   const state = { meta: { created: 'T' }, guild: G.newGame(), run: null }; G.startRun(state, 'dr'); state.run.temp = ['fortune']; state.run.status = 'extracted'; const rep = G.settle(state); assert.deepEqual(rep.tried, ['fortune']); assert.ok(!state.guild.cards.includes('fortune'), '임시 카드는 영구 소유가 아니다'); assert.ok(!state.guild.heroes.ara.deck.includes('fortune'));
 });
+
+test('레벨 구성: 상자·장치·특산 재료는 경비가 지키고, 경비가 3칸 안에 살아 있으면 손댈 수 없다', () => {
+  const md = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y); let prizes = 0, close = 0, looters = 0, back = 0;
+  for (const reg of ['verdant', 'foundry', 'archive']) for (let i = 0; i < 80; i++) { const m = M.generate(reg, ER.rng.seedStreams('lvl' + i));
+    for (const rm of m.rooms) { for (const o of rm.objects) if (['chest', 'device'].includes(o.kind) && rm.enemies.length) { prizes++; assert.ok(o.guards?.length, reg + ' ' + rm.type + ': 경비 없는 ' + o.kind); if (rm.enemies.some(e => o.guards.includes(e.id) && md(e, o) <= 3)) close++; }
+      for (const e of rm.enemies.filter(e => e.looting)) { looters++; const c = rm.objects.find(o => o.kind === 'chest'); if ((e.facing === 'left') === (c.x <= e.x)) back++; } } }
+  assert.ok(prizes > 300 && close === prizes, '모든 목표물 3칸 안에 경비: ' + close + '/' + prizes); assert.ok(looters > 20 && back / looters > 0.7, '약탈자는 상자 쪽을 본다 ' + back + '/' + looters);
+  const run = arena('ara', [['goblin', 6, 4]]); const rm = RUN.room(run), g = rm.enemies[0]; rm.objects.push({ id: 'oC', kind: 'chest', chest: 'basic', opened: false, x: 4, y: 4, guards: [g.id] }, { id: 'oN', kind: 'node', mat: 'wood', qty: 2, x: 3, y: 3 });
+  assert.ok(RUN.interactions(run, rm.objects[0])[0].blocked); assert.equal(RUN.act(run, { t: 'interact', id: 'oC', method: 'open' }).ok, false); assert.ok(!RUN.interactions(run, rm.objects[1])[0].blocked, '경비 없는 재료는 자유');
+  g.x = 9; assert.ok(!RUN.interactions(run, rm.objects[0])[0].blocked, '멀리 떼어내면 열 수 있다'); g.x = 6; g.hp = 0; assert.ok(RUN.act(run, { t: 'interact', id: 'oC', method: 'open' }).ok, '처치하면 열 수 있다');
+});

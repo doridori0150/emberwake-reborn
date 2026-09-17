@@ -585,6 +585,8 @@
   // 상호작용: 영웅과 같은 칸이거나 상하좌우 인접한 소품.
   function nearbyObjects(run) { const h = run.hero; return room(run).objects.filter(o => o.kind !== 'trap' && Math.abs(o.x - h.x) + Math.abs(o.y - h.y) <= 1 && interactions(run, o).length); }
   function checkInfo(run, def) { const bonus = gearSum(run, 'check') + (hasPerk(run, 'noa_loot') ? 2 : 0) + run.hero.checkBonus, mode = run.hero.rollMode || 'normal'; return { formula: def.formula, dc: def.dc, bonus, mode, chance: ER.dice.chance(def.formula, def.dc, { bonus, mode }) }; }
+  // 경비: 방을 만들 때 이 소품을 지키도록 배치된 적. 살아서 3칸 안에 있는 동안에는 손댈 수 없다(처치하거나 멀리 떼어낸다).
+  function guardsNear(run, o) { if (!o.guards?.length) return []; return alive(room(run)).filter(e => o.guards.includes(e.id) && Math.abs(e.x - o.x) + Math.abs(e.y - o.y) <= 3); }
   function interactions(run, o) { // 이 소품에 지금 할 수 있는 행동 목록(표시 비용 = 실제 비용)
     const T = RULES.time, combat = run.mode === 'combat', cost = n => (combat ? '주 행동' : '시간 ' + n), out = [];
     if (o.kind === 'node' && o.qty > 0) { const bonus = (run.hero.harvest || 0) + (['ore', 'resin', 'coal', 'crystal'].includes(o.mat) ? gearSum(run, 'gather') : 0); out.push({ method: 'gather', label: MATERIALS[o.mat].name + ' 채집 ×' + (o.fresh === false ? o.qty : o.qty + bonus), cost: cost(T.gather), full: bagRoom(run, o.mat) === 0 }); }
@@ -592,6 +594,7 @@
     if (o.kind === 'device' && !o.on) out.push({ method: 'device', label: '봉인 장치 작동', cost: cost(T.device) });
     if (o.kind === 'camp' && !o.used && !combat) out.push({ method: 'rest', label: '휴식: 체력 ' + Math.ceil(run.hero.maxHp * 0.4) + ' 회복(원정당 1회)', cost: '시간 ' + T.rest });
     if (o.kind === 'altar' && !o.used && !combat) { const ci = checkInfo(run, ALTAR.check); out.push({ method: 'altar', label: ALTAR.name + ' 판정 ' + ci.formula + (ci.bonus ? '+' + ci.bonus : '') + ' ≥ ' + ci.dc + ' (' + Math.round(ci.chance * 100) + '%)', cost: '시간 1', note: '성공: ' + ALTAR.success + ' · 실패: 시간 +' + ALTAR.fail.time, check: ci }); }
+    const gs = guardsNear(run, o); if (gs.length) for (const it of out) if (['gather', 'open', 'safe', 'check', 'device'].includes(it.method)) it.blocked = '경비(' + edef(gs[0]).name + (gs.length > 1 ? ' 외 ' + (gs.length - 1) : '') + ')가 지키고 있다 — 처치하거나 3칸 밖으로 떼어내자';
     if (o.kind === 'objective') out.push({ method: 'objective', label: REGIONS[run.regionId].objective.name + ' 회수', cost: '무료' });
     if (o.kind === 'pile') out.push({ method: 'pile', label: '바닥의 물품 줍기', cost: '무료' });
     if (o.kind === 'portal') { const near = alertIn(room(run)).some(e => dist(e, run.hero) <= 2); out.push({ method: 'extract', label: '길드로 귀환', cost: combat ? '주 행동' : '무료', blocked: near ? '경계 중인 적이 2칸 안에 있다' : null }); }
@@ -672,6 +675,6 @@
   function intentText(run, e) { const d = edef(e); if (e.hp <= 0) return ''; if (e.st.stun) return '기절'; if (e.state !== 'alert') return (e.patrol ? '순찰 중 — 사방 ' + detectRange(run, e) + '칸을 살핀다.' : '방심 — 바라보는 쪽 ' + detectRange(run, e) + '칸만 본다. 가끔 뒤를 돌아본다.') + ' 들키기 전에 치면 기습 +' + RULES.ambushBonus; if (e.intent) return e.intent.label + (e.intent.dmg ? ' ' + e.intent.dmg : ''); if (d.ai === 'ranged') return '자리 잡고 조준'; if (d.ai === 'caster') return '문양 또는 치유'; if (d.ai === 'boss') return '곁에 있으면 후려치기 ' + Math.max(1, enemyDmg(run, e) - 2) + ' · 다음 예고: ' + ({ sweep: '휩쓸기', charge: '돌진', summon: '소환', slam: '내려찍기', vent: '열기 방출', runes: '문양', beam: '광선', blink: '점멸' }[d.pattern[e.step % d.pattern.length]]); return '접근 후 공격 ' + enemyDmg(run, e); }
 
   function strip(run) { const c = clone(run); c.events = []; return c; } // 저장용
-  ER.run = { create, act, preview, room, card, los, visible, vision, pathTo, reachableTiles, cardRangeTiles, doorInfo, exitInfo, nearbyObjects, interactions, threatTiles, allThreat, watchTiles, critChance, intentText, bagSlots, bagRoom, moveMax, phaseDef, alive, alertIn, strip, calcDamage, addBag, edef };
+  ER.run = { create, act, preview, room, card, los, visible, vision, pathTo, reachableTiles, cardRangeTiles, doorInfo, exitInfo, nearbyObjects, interactions, threatTiles, allThreat, watchTiles, critChance, intentText, bagSlots, bagRoom, moveMax, phaseDef, alive, alertIn, strip, calcDamage, addBag, edef, guardsNear };
   if (typeof module === 'object') module.exports = ER;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

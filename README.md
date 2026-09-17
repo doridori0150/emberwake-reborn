@@ -69,7 +69,7 @@ npm run assets     # 참조 프로젝트에서 에셋 다시 가져오기 + 매�
 index.html · styles.css
 src/rng.js          분리된 난수 흐름(map/loot/draw/dice/ai)과 주사위 판정
 src/data.js         콘텐츠 표: 재료·카드·대원·적·지역·시설·장비·연구·의뢰
-src/mapgen.js       방 그래프·타일·소품·적 배치, 도달 가능성 검증
+src/mapgen.js       방 그래프·타일, 구성 배치(목표 지점·경비·순찰·지형), 도달 가능성 검증
 src/run.js          원정 규칙 엔진(순수 상태 전이, DOM 없음). 미리보기와 실제 피해가 같은 계산을 쓴다
 src/guild.js        길드 경제·투자·덱/장비·정산(원정 ID당 1회)
 src/save.js         버전 있는 IndexedDB 저장, 체크섬, 백업, 탭 충돌 방지

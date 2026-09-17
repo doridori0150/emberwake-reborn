@@ -125,6 +125,7 @@
       else if (o.kind === 'objective') { const bob = Math.sin(now / 300) * 4; ctx.fillStyle = 'rgba(255,226,122,.25)'; ctx.beginPath(); ctx.arc(cx, by - 26, 26 + bob, 0, 7); ctx.fill(); gfx.drawFit(ctx, 'material.relic', cx, by - 6 + bob, 40, 40); this.label(ctx, cx, by - 58, D.REGIONS[run.regionId].objective.name, '#ffe27a'); }
       else if (o.kind === 'pile') { gfx.drawFit(ctx, 'gear.pack', cx, by - 4, 30, 30); }
       else if (o.kind === 'trap') { ctx.strokeStyle = '#ffe27a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, o.y * T + T / 2, 16, 0, 7); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; ctx.moveTo(cx + Math.cos(a) * 16, o.y * T + T / 2 + Math.sin(a) * 16); ctx.lineTo(cx + Math.cos(a) * 23, o.y * T + T / 2 + Math.sin(a) * 23); } ctx.stroke(); }
+      if (!o.opened && !o.on && RUN.guardsNear(run, o).length) this.label(ctx, cx, by - (o.kind === 'node' ? 56 : 72), '경비 중', '#ff8f7a');
     }
     unit(ctx, run, u, now) {
       const a = gfx.asset(u.asset); let px = u.x * T + T / 2, py = u.y * T + T * 0.86 - (u.hop || 0);
