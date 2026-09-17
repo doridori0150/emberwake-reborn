@@ -1,0 +1,9 @@
+src/content.js
+src/asset-manifest.js
+dist/
+assets/
+node_modules/
+*.html
+*.css
+*.md
+*.json
