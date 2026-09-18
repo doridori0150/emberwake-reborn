@@ -922,8 +922,9 @@
             : e.st.stun
               ? '✶ 기절'
               : e.intent
-                ? ({ aim: '◎ 조준 ', area: '▼ ', throw: '◎ ', lunge: '⤴ ', charge: '➤ 돌진 ', summon: '✦ 소환', blink: '✦ 점멸' }[e.intent.type] ||
-                    '! ') +
+                ? ({ aim: '◎ 조준 ', area: '▼ ', throw: '◎ ', lunge: '⤴ ', charge: '➤ 돌진 ', summon: '✦ 소환', blink: '✦ 점멸' }[
+                    e.intent.type
+                  ] || '! ') +
                   (['area', 'throw', 'lunge'].includes(e.intent.type) ? e.intent.label + ' ' : '') +
                   (e.intent.dmg || '')
                 : D.ENEMIES[e.kind].boss

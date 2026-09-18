@@ -45,7 +45,11 @@ function invest(g, log) {
     }
     if (pick.t.kind === 'gear') {
       // 만든 장비는 쓸 수 있는 대원 모두에게 끼워 본다(한 대원만 강해지는 편중을 막는다)
-      for (const h of g.roster) if (!D.GEAR[pick.t.id].heroes?.length || D.GEAR[pick.t.id].heroes.includes(h)) G.equip(g, h, pick.t.id);
+      for (const h of g.roster)
+        if (!D.GEAR[pick.t.id].heroes?.length || D.GEAR[pick.t.id].heroes.includes(h)) {
+          const r = G.equip(g, h, pick.t.id);
+          if (!r.ok) log('  장착 실패(' + D.HEROES[h].name + '): ' + r.reason);
+        }
     }
   }
   return bought;
@@ -83,15 +87,18 @@ function campaign(seed, maxRuns, verbose, opts = {}) {
   const state = { meta: { created: 'camp-' + seed }, guild: G.newGame(), run: null },
     g = state.guild,
     log = m => verbose && console.log(m),
-    events = [];
+    events = [],
+    tries = {}; // 지역별 수호자 도전 횟수(둘에 한 번 도전)
   for (let i = 0; i < maxRuns; i++) {
     const region = pickRegion(g);
     if (G.wearOf(g, region) >= 3 && G.ORDER.indexOf(region) > 0) g.selected.region = G.ORDER[G.ORDER.indexOf(region) - 1]; // 소진됐으면 한 단계 얕은 지역에서 회복을 기다린다
     if (!(G.wearOf(g, region) >= 3 && G.ORDER.indexOf(region) > 0)) g.selected.region = region;
     g.selected.hero = pickHero(g);
-    // 수호자 도전은 준비가 됐을 때만(장비 2개 이상·훈련 1회 이상), 아니면 그 지역에서 재료를 모은다. 도전은 두 번에 한 번.
-    const ready = g.gearOwned.length >= 2 && g.heroes[g.selected.hero].perks.length >= 1,
-      goal = ready && g.runSeq % 2 === 0 ? 'boss' : 'loot';
+    // 수호자 도전은 준비가 됐을 때만(장비 2개 이상·훈련 1회 이상), 아니면 그 지역에서 재료를 모은다.
+    // 도전 여부는 지역별로 번갈아 센다(전체 원정 번호 홀짝은 소진 교대와 맞물려 특정 지역 도전이 사라졌다).
+    const region1 = g.selected.region,
+      ready = g.gearOwned.length >= 2 && g.heroes[g.selected.hero].perks.length >= 1,
+      goal = ready && !g.regions[region1].boss && (tries[region1] = (tries[region1] || 0) + 1) % 2 === 1 ? 'boss' : 'loot';
     const r = G.startRun(state);
     if (!r.ok) {
       events.push('원정 시작 실패: ' + r.reason);
@@ -116,6 +123,7 @@ function campaign(seed, maxRuns, verbose, opts = {}) {
         goal +
         ' → ' +
         run.status +
+        (run.gaveUp ? '(포기)' : '') +
         (rep.objective ? ' (목표 회수)' : '') +
         ' 시간 ' +
         run.time +
@@ -134,8 +142,9 @@ function campaign(seed, maxRuns, verbose, opts = {}) {
     buyMissing(g, log);
     invest(g, log);
     ER.save.unpack(ER.save.pack(state)); // 저장 왕복이 깨지지 않는지
+    if (run.gaveUp) events.push('원정 ' + (i + 1) + ': 추적자 대치 포기');
     if (g.regions.archive.boss) {
-      events.push('원정 ' + (i + 1) + '에 별의 서고 수호자 격파 — 캠페인 완주');
+      events.push('원정 ' + (i + 1) + '에 별의 서고 수호자 격파' + (rep.objective ? '·목표물 회수' : '(목표물 미회수)') + ' — 캠페인 완주');
       break;
     }
   }

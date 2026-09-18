@@ -1690,7 +1690,17 @@ test('적 패턴 3종: 도약(1칸 비켜도 따라 물림, 2칸이면 헛물·�
   RUN.act(run, { t: 'move', x: 2, y: 4 });
   const hp1 = h.hp;
   RUN.act(run, { t: 'end' });
-  assert.ok(h.hp < hp1, '1칸 비킨 정도로는 물린다');
+  assert.ok(h.hp < hp1, '1칸 비킨 정도로는 물린다(십자 안)');
+  // 가운데 칸이 불길로 막혀도 십자 밖에 서 있으면 절대 맞지 않는다(표시 = 실제)
+  run = arena('ara', [['hound', 6, 4]], { hand: ['strike', 'strike', 'strike', 'strike'] });
+  e = RUN.room(run).enemies[0];
+  h = run.hero;
+  RUN.act(run, { t: 'end' });
+  RUN.room(run).fire = [{ x: 3, y: 4, left: 2 }];
+  RUN.act(run, { t: 'move', x: 3, y: 2 });
+  const hp1b = h.hp;
+  RUN.act(run, { t: 'end' });
+  assert.equal(h.hp, hp1b, '착지 칸이 바뀌어도 예고 밖은 안전');
 
   // 방패병: 예고 없이 밀친다. 등 뒤가 비어 있으면 1칸 밀리고 피해 −2, 벽이면 찧기
   run = arena('ara', [['shieldman', 4, 4]], { hand: ['strike', 'strike', 'strike', 'strike'] });
@@ -1717,17 +1727,17 @@ test('적 패턴 3종: 도약(1칸 비켜도 따라 물림, 2칸이면 헛물·�
   assert.equal(D.ENEMIES.slinger.ai, 'firepot');
   RUN.act(run, { t: 'end' });
   assert.equal(e.intent?.type, 'throw', '단지를 든다');
-  RUN.act(run, { t: 'move', x: 3, y: 2 });
+  RUN.act(run, { t: 'move', x: 4, y: 2 }); /* 십자 밖이되 사거리(5)·시야 안 */
   RUN.act(run, { t: 'end' });
   const rm = RUN.room(run);
   assert.ok(rm.fire.length >= 3, '십자 칸이 불탄다: ' + rm.fire.length);
   assert.ok(rm.fire.some(f => f.x === 3 && f.y === 4));
   assert.equal(rm.fire[0].left, D.RULES.fire.turns, '막 붙은 불은 정해진 턴을 온전히 탄다');
   assert.equal(RUN.preview(run, { t: 'move', x: 3, y: 4 }).ok, false, '불길을 지나는 경로는 없다(목적지만 허용)');
-  const pv = RUN.preview(run, { t: 'move', x: 3, y: 3 });
+  const pv = RUN.preview(run, { t: 'move', x: 4, y: 4 });
   assert.match(pv.text, /불길 피해/);
   const hp2 = h.hp;
-  RUN.act(run, { t: 'move', x: 3, y: 3 });
+  RUN.act(run, { t: 'move', x: 4, y: 4 });
   assert.equal(hp2 - h.hp, D.RULES.fire.dmg, '불길을 밟으면 피해');
   e.hp = 0;
   RUN.room(run).enemies = [];
@@ -1759,4 +1769,84 @@ test('행상(금화 소비처): 창고가 있으면 날마다 열린 지역 재�
   assert.match(G.buyMat(g, m[1].mat).reason, /금화/);
   G.newDay(g);
   assert.equal(G.market(g).find(x => x.mat === it.mat)?.left ?? D.RULES.shop.buyQty, D.RULES.shop.buyQty, '새 날에는 물량 회복');
+});
+
+test('수호자 격파 보증: 성장한 대원의 전투 봇이 각 지역 수호자를 대체로 잡는다(회귀 감지용 하한)', () => {
+  require('../src/bot.js');
+  const bosses = [
+    ['warden', 'verdant', 0.7],
+    ['overseer', 'foundry', 0.6],
+    ['hierophant', 'archive', 0.5]
+  ];
+  for (const [kind, region, floor] of bosses) {
+    const r = ER.bot.duel([[kind, 8, 4]], { n: 20, heroes: ['ara'], region, grown: true, seed: 'bosscheck' });
+    assert.ok(r.ara.win >= floor, kind + ' 승률 ' + r.ara.win + ' < ' + floor);
+  }
+});
+
+test('3라운드 계약: 반응 방어는 그 공격 1회에만(두 번째 적에게 남지 않음), 투척은 시야가 끊기면 놓치고 예산이 차면 불길도 없다, 포기는 시간을 안 썼으면 하루가 가지 않는다, 불길로 밀린 적도 피해', () => {
+  // 반응: 피해 3짜리 적 둘. 방어 4 → 첫 공격 3 막고 남은 1은 버려져 두 번째는 온전히 맞는다.
+  let run = arena(
+    'noa',
+    [
+      ['goblin', 4, 4],
+      ['goblin', 3, 5]
+    ],
+    { hand: ['riposte', 'strike', 'strike', 'strike'] }
+  );
+  let h = run.hero;
+  for (const e of RUN.room(run).enemies) e.hp = e.maxHp = 40;
+  assert.ok(RUN.act(run, { t: 'card', i: 0 }).ok);
+  const hp0 = h.hp;
+  RUN.act(run, { t: 'end' });
+  assert.equal(hp0 - h.hp, 3, '반응 방어 잔량이 두 번째 공격을 막지 않는다: 잃은 체력 ' + (hp0 - h.hp));
+
+  // 투척: 조준 뒤 기둥 뒤로 숨으면 놓친다
+  run = arena('ara', [['slinger', 7, 4]], { hand: ['strike', 'strike', 'strike', 'strike'] });
+  h = run.hero;
+  let e = RUN.room(run).enemies[0];
+  RUN.act(run, { t: 'end' });
+  assert.equal(e.intent?.type, 'throw');
+  RUN.room(run).tiles = RUN.room(run).tiles.map((row, y) => (y === 4 ? row.slice(0, 5) + '#' + row.slice(6) : row));
+  const hp1 = h.hp;
+  RUN.act(run, { t: 'end' });
+  assert.equal(h.hp, hp1, '시야가 끊기면 단지를 못 던진다');
+  assert.ok(!RUN.room(run).fire?.length, '불길도 없다');
+  // 예산이 찼으면 던지기가 미뤄지고 불길도 생기지 않는다
+  run = arena(
+    'ara',
+    [
+      ['goblin', 4, 4],
+      ['goblin', 3, 5],
+      ['slinger', 7, 4]
+    ],
+    { hand: ['strike', 'strike', 'strike', 'strike'] }
+  );
+  h = run.hero;
+  e = RUN.room(run).enemies[2];
+  for (const g of RUN.room(run).enemies) g.hp = g.maxHp = 40;
+  RUN.act(run, { t: 'end' });
+  assert.equal(e.intent?.type, 'throw');
+  RUN.act(run, { t: 'end' });
+  assert.ok(!RUN.room(run).fire?.length, '고블린 둘이 예산 2를 다 쓰면 잿불 단지는 미뤄지고 불길이 없다');
+
+  // 불길로 밀린 적은 진입 피해
+  run = arena('noa', [['goblin', 4, 4]], { hand: ['shove', 'strike', 'strike', 'strike'] });
+  e = RUN.room(run).enemies[0];
+  e.hp = e.maxHp = 40;
+  RUN.room(run).fire = [{ x: 5, y: 4, left: 2 }];
+  const id = e.id;
+  if (RUN.act(run, { t: 'card', i: 0, target: { id } }).ok) assert.ok(e.hp < 40 - 1, '밀쳐 넣은 적이 불 피해를 받는다: ' + e.hp);
+
+  // 포기: 시간 0에 포기해도 하루가 가지 않는다
+  const state = { meta: {}, guild: G.ensure(G.newGame()), run: null };
+  state.guild.facilities.stash = 1;
+  const day0 = state.guild.day,
+    m0 = G.market(state.guild);
+  assert.ok(G.buyMat(state.guild, m0[0].mat).ok);
+  G.startRun(state);
+  RUN.act(state.run, { t: 'giveUp' });
+  G.settle(state);
+  assert.equal(state.guild.day, day0, '즉시 포기로 날짜가 넘어가지 않는다');
+  assert.equal(G.market(state.guild)[0].left, D.RULES.shop.buyQty - 1, '행상 물량도 그대로');
 });

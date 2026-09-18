@@ -1574,19 +1574,36 @@
   }
   const run = () => state.run;
   // 진단용 최근 행동 기록(원정 행동 40개). 버그 제보 때 설정 → 진단 정보 복사로 함께 나간다.
-  const diag = { acts: [] };
+  const diag = { acts: [], errors: [] };
+  try {
+    Object.assign(diag, JSON.parse(sessionStorage.getItem('er-diag') || '{}')); // 새로고침해도 최근 기록은 남긴다(탭 단위)
+  } catch (e) {}
+  function keepDiag() {
+    try {
+      sessionStorage.setItem('er-diag', JSON.stringify(diag));
+    } catch (e) {}
+  }
   function noteAct(r, a, res) {
     diag.acts.push({
+      run: r.seed,
       turn: r.turn,
       time: r.time,
       mode: r.mode,
-      room: r.roomId ?? r.room,
+      room: r.roomId,
       a,
       ok: res.ok,
       why: res.ok ? undefined : res.reason
     });
     if (diag.acts.length > 40) diag.acts.shift();
+    keepDiag();
   }
+  function noteError(where, e) {
+    diag.errors.push({ at: new Date().toISOString(), where, msg: String(e?.message || e), stack: String(e?.stack || '').slice(0, 600) });
+    if (diag.errors.length > 10) diag.errors.shift();
+    keepDiag();
+  }
+  addEventListener('error', e => noteError('window', e.error || e.message));
+  addEventListener('unhandledrejection', e => noteError('promise', e.reason));
   function contentHash() {
     try {
       return (ER.rng.hash(JSON.stringify(ER.CONTENT || {})) >>> 0).toString(16);
@@ -1620,10 +1637,20 @@
         ? { outcome: state.guild.lastReport.outcome, seed: state.guild.lastReport.seed, log: state.guild.lastReport.log }
         : null,
       acts: diag.acts,
+      errors: diag.errors,
+      storage: ER.save.mode ? ER.save.mode() : undefined,
       save: ER.save.pack(state)
     };
   }
   async function copyDiag() {
+    if (
+      !(await ask(
+        '진단 정보 복사',
+        '복사되는 것: 빌드 버전·커밋, 콘텐츠 해시, 브라우저 종류·화면 크기, 현재 원정 시드, 최근 행동 40개, 최근 오류, 그리고 <b>저장 전체</b>(진행 이력 포함). 제보 글에 붙여 넣기 전에 원치 않는 부분은 지워도 됩니다.',
+        '복사한다'
+      ))
+    )
+      return;
     const text = JSON.stringify(diagBundle());
     try {
       await navigator.clipboard.writeText(text);
@@ -1641,7 +1668,14 @@
     if (!r0 || runView.busy || modalOpen()) return;
     if (a.t === 'end') (($('#turnBanner').className = 'turnbanner enemy'), ($('#turnBanner').textContent = '적 턴…'));
     const hp0 = r0.hero.hp;
-    const res = RUN.act(r0, a);
+    let res;
+    try {
+      res = RUN.act(r0, a);
+    } catch (e) {
+      noteAct(r0, a, { ok: false, reason: '예외: ' + e.message });
+      noteError('act', e);
+      throw e;
+    }
     noteAct(r0, a, res);
     if (!res.ok) {
       toast(res.reason);
@@ -1667,9 +1701,9 @@
       state.flags.combatTip = true;
       persist();
       const box = modal(
-        '<h2>첫 전투</h2><p class="lead">내 턴마다 <b>이동</b> + <b>주 행동 1</b> + <b>보조 행동 1</b>. 카드 배지가 행동 종류입니다.</p><p>· <b>주 행동</b>: 공격·큰 기술 (F 기본 공격, G 방어)<br>· <b>보조 행동</b>: 준비·회복·R 숨 고르기<br>· <b>반응</b>: 걸어 두면 적 턴에 조건이 맞을 때 1회 발동 (주·보조를 쓰지 않음)<br>· <b>자유</b>: 탐사 준비, 같은 카드는 턴당 1회<br>· <b>충전</b>이 붙은 카드(T3)는 원정당 ' +
+        '<h2>첫 전투</h2><p class="lead">내 턴마다 <b>이동</b> + <b>주 행동 1</b> + <b>보조 행동 1</b>. 카드 배지가 행동 종류입니다.</p><p>· <b>주 행동</b>: 공격·큰 기술 (F 기본 공격, G 방어)<br>· <b>보조 행동</b>: 준비·회복·R 숨 고르기<br>· <b>반응</b>: 걸어 두면 다음 <b>근접 공격</b>(기회 공격·돌진 포함, 원거리·광역 제외) 1회에 발동. 주·보조를 쓰지 않으니 공격과 함께 쓸 수 있다<br>· <b>자유</b>: 탐사 준비, 같은 카드는 턴당 1회<br>· <b>충전</b>이 붙은 카드는 원정당 <b>공용 ' +
           D.RULES.charges +
-          '회, 야영에서 회복</p><p class="src">적이 무기를 치켜들면 <b>빗금 친 칸</b>이 다음 턴 공격 범위입니다. 예고가 없는 약한 공격은 방어로 받아내세요. <kbd>V</kbd>로 위협 범위, <kbd>Space</kbd>로 턴 종료.</p><div class="row"><button class="primary big" id="ctOk" type="button">알겠다</button></div>'
+          '점</b>을 나눠 쓴다. 야영에서 체력 회복 대신 +1</p><p class="src">적이 무기를 치켜들면 <b>빗금 친 칸</b>이 다음 턴 공격 범위입니다. 예고가 없는 약한 공격은 방어로 받아내세요. <kbd>V</kbd>로 위협 범위, <kbd>Space</kbd>로 턴 종료.</p><div class="row"><button class="primary big" id="ctOk" type="button">알겠다</button></div>'
       );
       box.querySelector('#ctOk').onclick = closeModal;
     }
@@ -1951,7 +1985,16 @@
             (sel?.kind === 'discard' ? ' discarding' : ''),
           cardHTML(c, { key: i + 1 }) + ((r.temp || []).includes(cid) ? '<span class="tempbadge">발견</span>' : '')
         );
-      b.title = (combat ? '' : '탐사 중 카드 사용: 시간 ' + D.RULES.time.card + ' · ') + c.text;
+      b.title =
+        (combat ? '' : '탐사 중 카드 사용: 시간 ' + D.RULES.time.card + ' · ') +
+        '[' +
+        slotName(c) +
+        ' · T' +
+        (c.tier || 1) +
+        (c.charge ? ' · 충전 ' + c.charge : '') +
+        '] ' +
+        c.text +
+        (usable ? '' : ' — 지금은 못 씀: ' + RUN.slotReason(r, c.slot, c));
       b.onclick = () => {
         if (sel?.kind === 'discard') return doAct({ t: 'breathe', i });
         if (sel?.kind === 'card' && sel.i === i && c.target === 'self') return doAct({ t: 'card', i });
@@ -2022,6 +2065,7 @@
       p = $('#prompt');
     p.innerHTML = '';
     if (!r) return;
+    const why = runView.overlay?.why ? ' <span class="issue">✕ ' + runView.overlay.why + '</span>' : '';
     if (sel?.kind === 'card') {
       const c = RUN.card(r, r.deck.hand[sel.i]);
       p.innerHTML =
@@ -2035,7 +2079,9 @@
           : c.target === 'tile'
             ? '빛나는 칸을 클릭'
             : '대상 클릭 · Tab 전환 · Enter 확정') +
-        ' · Esc 취소</span>';
+        ' · Esc 취소' +
+        why +
+        '</span>';
     } else if (sel?.kind === 'special') {
       const sp = D.HEROES[r.heroId].special;
       p.innerHTML =
@@ -2049,7 +2095,7 @@
         sp.text +
         ' · 대상 클릭 · Tab 전환 · Enter 확정 · Esc 취소</span>';
     } else if (sel?.kind === 'attack')
-      p.innerHTML = '<span><b>기본 공격</b> · 주 행동 — 대상 클릭 · Tab 전환 · Enter 확정 · Esc 취소</span>';
+      p.innerHTML = '<span><b>기본 공격</b> · 주 행동 — 대상 클릭 · Tab 전환 · Enter 확정 · Esc 취소' + why + '</span>';
     else if (sel?.kind === 'discard')
       p.innerHTML = '<span><b>숨 고르기</b> · 보조 행동 — 버릴 카드를 고르면 1장을 새로 뽑는다 · Esc 취소</span>';
     else {
@@ -2177,7 +2223,7 @@
             ov.crit = p.crit;
             ov.marks = p.marks;
             if (p.tiles?.length) ov.tile = hover;
-          }
+          } else ov.why = p.reason; /* 왜 안 되는지 안내줄에 보여 준다 */
         }
       }
     } else if (sel?.kind === 'attack' || sel?.kind === 'special') {
@@ -2191,7 +2237,7 @@
           ov.preview = p.dmg;
           ov.crit = p.crit;
           if (p.tiles?.length) ov.tile = { x: p.tiles[0][0], y: p.tiles[0][1] };
-        }
+        } else ov.why = p.reason;
       }
     } else {
       if (r.mode === 'combat') ov.reach = RUN.reachableTiles(r);
@@ -2281,6 +2327,14 @@
             : '이동력 +1 소모. 물 위의 적은 연쇄 전류 전이 피해 +2.') +
           '</div>';
       } else if (t === 'o') txt = '<h5>기둥</h5><div class="note">이동과 시야를 막는다. 사수의 조준을 끊는 엄폐물.</div>';
+      const fire = (rm.fire || []).find(f => f.x === hover.x && f.y === hover.y);
+      if (fire)
+        txt +=
+          '<h5>불길</h5><div class="note">들어가거나 밀려 들어가면 피해 ' +
+          D.RULES.fire.dmg +
+          '(적도 같다). 적 턴 ' +
+          fire.left +
+          '번 뒤에 꺼진다. 전투가 끝나면 사그라든다.</div>';
       if (txt) {
         tip.hidden = false;
         tip.innerHTML = txt;

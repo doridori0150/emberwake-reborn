@@ -35,6 +35,22 @@ const SCENES = {
       ['hound', 9, 5]
     ]
   ],
+  '용광로 방패 전열(방패병2+투척병)': [
+    'foundry',
+    [
+      ['shieldman', 7, 3],
+      ['shieldman', 7, 5],
+      ['slinger', 10, 4]
+    ]
+  ],
+  '용광로 혼합(방패병+투척병+사냥개)': [
+    'foundry',
+    [
+      ['shieldman', 7, 4],
+      ['slinger', 10, 2],
+      ['hound', 9, 6]
+    ]
+  ],
   집행자: ['foundry', [['overseer', 9, 4]]],
   사제: ['archive', [['hierophant', 9, 4]]]
 };

@@ -403,7 +403,12 @@
       q = [[x, y]];
     while (q.length) {
       const [cx, cy] = q.shift();
-      if (walkable(run, cx, cy, true) && tile(room(run), cx, cy) !== 'h' && !(opts.keepDoors && doorFront(room(run), cx, cy)))
+      if (
+        walkable(run, cx, cy, true) &&
+        tile(room(run), cx, cy) !== 'h' &&
+        !fireAt(room(run), cx, cy) &&
+        !(opts.keepDoors && doorFront(room(run), cx, cy))
+      )
         return [cx, cy];
       for (const [dx, dy] of N4) {
         const k = key(cx + dx, cy + dy);
@@ -594,10 +599,11 @@
     const R0 = run.hero.reaction,
       fired = !!(R0 && src?.melee && src.enemy && R0.trigger === 'melee'),
       prevRet = run.hero.retaliate || 0;
+    let reactBlock = 0;
     if (fired) {
-      // 반응 발동: 이 공격 1회를 방어값만큼 받아내고, 살아남으면 되친다(아래 반격 계산에 합류). 이 공격에만 적용된다.
+      // 반응 발동: 이 공격 1회를 반응 방어값으로 먼저 받아내고(남는 양은 버린다), 살아남으면 되친다(아래 반격 계산에 합류). 이 공격에만 적용된다.
       run.hero.reaction = null;
-      run.hero.block += R0.block;
+      reactBlock = R0.block;
       run.hero.retaliate = Math.max(prevRet, R0.retaliate);
       run.hero.reactionFired = true;
       ev(run, { t: 'text', x: run.hero.x, y: run.hero.y, text: CARDS[R0.id].name + '!' });
@@ -610,8 +616,9 @@
       n = Math.max(0, n - 2);
       ev(run, { t: 'text', x: h.x, y: h.y, text: '회피 -2' });
     }
-    let absorbed = Math.min(h.block, n);
-    h.block -= absorbed;
+    const byReact = Math.min(reactBlock, n);
+    let absorbed = byReact + Math.min(h.block, n - byReact);
+    h.block -= absorbed - byReact;
     const through = n - absorbed;
     if (absorbed) {
       ev(run, { t: 'dmg', id: 'hero', x: h.x, y: h.y, n: absorbed, kind: 'block' });
@@ -775,6 +782,12 @@
         moved = [];
         hurtEnemy(run, e, hazard(run).dmg + slamBonus(run), 'hazard');
       }
+      if (e.hp > 0 && fireAt(rm, nx, ny)) {
+        // 불길로 밀어 넣으면 적도 진입 피해를 받는다
+        ev(run, { t: 'move', id: e.id, path: moved });
+        moved = [];
+        hurtEnemy(run, e, RULES.fire.dmg, 'burn');
+      }
       if (e.hp > 0 && trapCheck(run, e)) break;
     }
     if (moved.length && e.hp > 0) ev(run, { t: 'move', id: e.id, path: moved });
@@ -844,6 +857,8 @@
     h.bonus = 1;
     h.moved = 0;
     h.statusUsed = false;
+    h.freeUsed = [];
+    h.reaction = null;
     h.block = gearSum(run, 'startBlock') + (hasPerk(run, 'lumi_ward') ? 4 : 0);
     ev(run, { t: 'combat', ambush });
     say(run, ambush ? '기습! 적이 눈치채기 전에 먼저 움직인다.' : '적이 나를 발견했다! 내 턴부터 시작한다.');
@@ -1415,9 +1430,9 @@
           ev(run, { t: 'move', id: e.id, path: [near], fast: true });
         }
         const inTiles = it.tiles.some(([x, y]) => x === h.x && y === h.y);
-        // 예고 칸 안이면 제대로 물리고(+1), 한 칸만 비켜섰으면 착지한 자리에서 따라 물린다(보정 없음). 두 칸 이상 벗어나야 헛물.
-        if (inTiles && adj()) strike(run, e, budget, false, 1);
-        else if (adj()) strike(run, e, budget, false, 0);
+        // 물리는 조건은 오직 "예고 십자 안에 서 있는가"(표시와 같다). 가운데 칸은 +1, 가장자리(한 칸 비킴)는 보정 없음. 십자 밖이면 헛물.
+        if (inTiles && h.x === it.tiles[0][0] && h.y === it.tiles[0][1]) strike(run, e, budget, false, 1);
+        else if (inTiles) strike(run, e, budget, false, 0);
         else {
           say(run, d.name + '의 도약을 피했다.');
           e.st.exposed = Math.max(e.st.exposed || 0, 2); /* 적 턴 끝에 1 줄어 내 턴 동안 1 남는다 */
@@ -1461,7 +1476,8 @@
         if (tile(rm, tx, ty) === 'h' && hazard(run).dmg) {
           say(run, hazard(run).name + '에 긁혔다.');
           hurtHero(run, hazard(run).dmg, {});
-        } else if (fireAt(rm, tx, ty)) {
+        }
+        if (run.status === 'active' && fireAt(rm, tx, ty)) {
           say(run, '불길 속으로 밀려났다.');
           hurtHero(run, RULES.fire.dmg, {});
         }
@@ -1482,8 +1498,14 @@
           ev(run, { t: 'text', x: e.x, y: e.y, text: '연막에 막힘' });
           return;
         }
-        if (budget.ranged >= RULES.maxRangedPerPhase) {
+        if (!can()) {
+          // 던지기 전에 시야가 끊기거나 사거리를 벗어나면 조준 놓침(사수와 같다)
+          ev(run, { t: 'text', x: e.x, y: e.y, text: '조준 놓침' });
+          return;
+        }
+        if (budget.ranged >= RULES.maxRangedPerPhase || budget.total >= RULES.maxAttacksPerPhase) {
           ev(run, { t: 'text', x: e.x, y: e.y, text: '기회를 엿본다' });
+          say(run, d.name + '의 잿불 단지는 다른 적에게 밀려 미뤄졌다.');
           return;
         }
         budget.ranged++;
@@ -2832,6 +2854,7 @@
     let r;
     if (a.t === 'giveUp') {
       run.status = 'defeat';
+      run.gaveUp = true; /* 포기도 전리품을 잃지만, 시간을 쓰지 않았으면 하루가 가지 않는다(날짜·행상 우회 방지) */
       run.pendingEvent = null;
       run.pendingDraft = null;
       say(run, '원정을 포기했다.');

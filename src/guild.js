@@ -788,7 +788,7 @@
     G.lastReport = rep;
     state.run = null;
     // 하루가 넘어가는 것은 미궁에서 시간을 실제로 쓴 원정뿐이다(들어갔다 바로 나오는 것으로 소진·수요를 초기화하지 못한다). 패배는 언제나 하루가 간다.
-    if (run.status === 'defeat' || run.time >= RULES.dayMinTime) newDay(G);
+    if ((run.status === 'defeat' && !run.gaveUp) || run.time >= RULES.dayMinTime) newDay(G);
     else rep.sameDay = true;
     rep.day = G.day;
     fire(G, 'returnGuild', { region: run.regionId, outcome: run.status });

@@ -86,14 +86,13 @@
       if (run.mode !== 'combat' || run.status !== 'active') return;
       plan = bestAttack(run);
     }
-    // 아라: 곁의 근접 적이 나를 칠 상황이면 반격 태세가 기본 공격보다 낫다(방어 4 + 반격).
-    if (style === 'ara' && plan && h.main > 0) {
+    // 반격 태세는 반응(주·보조를 쓰지 않음): 곁에 근접 적이 있으면 걸어 두고, 공격 계획은 그대로 이어 간다.
+    if (!h.reaction) {
       const i = run.deck.hand.indexOf('riposte'),
         adj = foes().filter(e => md(e, h) === 1 && !ER.data.ENEMIES[e.kind].range && !e.st.stun);
-      if (i >= 0 && adj.length && plan.score < 6 * adj.length + 2) {
-        playBonus(run, ['guard_up']);
+      if (i >= 0 && adj.length) {
         RUN.act(run, { t: 'card', i });
-        plan = null;
+        plan = bestAttack(run) || plan;
       }
     }
     if (plan) {
@@ -129,9 +128,13 @@
     const threatened = foes().some(e => md(e, h) <= (ER.data.ENEMIES[e.kind].speed || 2) + 1 || e.intent?.type === 'aim');
     if (threatened) {
       playBonus(run, ['guard_up', 'sidestep']);
+      if (!h.reaction) {
+        const i = run.deck.hand.indexOf('riposte');
+        if (i >= 0) RUN.act(run, { t: 'card', i });
+      }
       if (h.main > 0) {
-        const i = ['riposte', 'bulwark'].map(n => run.deck.hand.indexOf(n)).find(x => x >= 0);
-        if (i != null && i >= 0) RUN.act(run, { t: 'card', i });
+        const i = run.deck.hand.indexOf('bulwark');
+        if (i >= 0) RUN.act(run, { t: 'card', i });
         else RUN.act(run, { t: 'guard' });
       }
     } else if (h.hp <= h.maxHp - 5 && h.main > 0) {
