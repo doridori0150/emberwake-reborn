@@ -126,3 +126,6 @@ label.opt { display:flex; gap:8px; align-items:center; margin:8px 0; }
 @media (max-height:640px) { .actionbar { height:124px; } .card .txt { font-size:.68rem; } }
 
 .mroom.go { cursor:pointer; } .mroom.go:hover { border-color:var(--amber); box-shadow:0 0 0 2px rgba(240,165,69,.35); }
+
+.warns { margin-top:6px; padding:4px 8px; border:1px solid #7a3a36; border-radius:6px; background:rgba(224,96,90,.12); color:#ffb3ad; font-size:.82rem; }
+.regionpick .warn { color:#f3c77e; }

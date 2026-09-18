@@ -1490,3 +1490,42 @@ test('귀환 편의: 가 본 방으로 자동 이동(시간은 그대로, 들키
 function D_GEAR() {
   return ER.data.GEAR;
 }
+
+test('지역 소진·재생: 같은 지역을 연달아 털면 재료가 줄고, 날이 지나거나 다른 지역을 다녀오면 회복된다', () => {
+  const D = ER.data,
+    R = D.RULES.deplete,
+    g = G.newGame(),
+    state = { meta: { created: 'T' }, guild: g, run: null };
+  assert.equal(G.wearOf(g, 'verdant'), 0);
+  assert.equal(G.yieldOf(g, 'verdant'), 1);
+  const avg = run => {
+    const ns = run.rooms.flatMap(r => r.objects.filter(o => o.kind === 'node'));
+    return ns.reduce((n, o) => n + o.qty, 0) / ns.length;
+  };
+  assert.ok(G.startRun(state, 'w1').ok);
+  const a1 = avg(state.run);
+  state.run.status = 'extracted';
+  G.settle(state);
+  assert.equal(G.wearOf(g, 'verdant'), R.perRun - R.recover, '원정 뒤 소진이 쌓이고 하루치는 바로 회복');
+  assert.ok(G.startRun(state, 'w1').ok);
+  assert.equal(state.run.yield, G.yieldOf(g, 'verdant'));
+  assert.ok(avg(state.run) < a1, '같은 시드인데 재료가 줄었다');
+  state.run.status = 'defeat';
+  G.settle(state);
+  for (let i = 0; i < 4; i++) {
+    assert.ok(G.startRun(state, 'w' + i).ok);
+    state.run.status = 'extracted';
+    G.settle(state);
+  }
+  assert.equal(G.wearOf(g, 'verdant'), R.max - R.recover, '상한');
+  for (let i = 0; i < 6; i++) G.newDay(g);
+  assert.equal(G.wearOf(g, 'verdant'), 0, '날이 지나면 회복');
+  assert.equal(g.wear.verdant, undefined);
+  const hm = ER.CONTENT.rooms[0],
+    room = { id: 1, type: hm.type, doors: { N: { to: 0 } } };
+  assert.ok(M.applyRoom(ER.rng.seedStreams('hm'), D.REGIONS.verdant, room, { n: 1 }, hm, 0.5));
+  assert.ok(
+    room.objects.filter(o => o.kind === 'node').every(o => o.qty >= 1),
+    '수제 방도 배율을 받되 1 밑으로는 안 간다'
+  );
+});

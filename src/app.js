@@ -1004,7 +1004,16 @@
                   '개 · 붉은달까지 ' +
                   (r.limit + G.mods(Gs).limitBonus) +
                   '<br>나오는 재료: ' +
-                  r.materials.map(matName).join(', ')
+                  r.materials.map(matName).join(', ') +
+                  (G.wearOf(Gs, rid)
+                    ? '<br><span class="warn">소진 ' +
+                      G.wearOf(Gs, rid) +
+                      '/' +
+                      D.RULES.deplete.max +
+                      ' — 재료 수량 ' +
+                      Math.round((1 - G.yieldOf(Gs, rid)) * 100) +
+                      '% 감소. 다른 지역을 다녀오거나 날이 지나면 회복</span>'
+                    : '')
                 : '이전 지역의 수호자를 쓰러뜨리고 귀환하거나, 의뢰 게시판의 우회 항로를 복구') +
               '</small>'
           );
@@ -1582,6 +1591,14 @@
       '칸 · 금화 ' +
       r.gold +
       '</div>';
+    // 탈출 경고: 던전에 남을수록 위험한 신호를 한곳에 모아 보여 준다(규칙 수치 RULES.warn).
+    const warns = [];
+    if (h.hp <= h.maxHp * D.RULES.warn.hp) warns.push('체력 ' + Math.round((h.hp / h.maxHp) * 100) + '%');
+    if (r.bag.length >= slots) warns.push('가방 가득');
+    if (r.time >= r.limit) warns.push('붉은달 — 추적자');
+    else if (r.time >= r.limit * D.RULES.warn.time) warns.push('붉은달까지 ' + (r.limit - r.time));
+    if (r.pursuers?.length) warns.push('추격 ' + r.pursuers.length);
+    if (warns.length) goal += '<div class="warns">▲ 귀환을 생각할 때: ' + warns.join(' · ') + '</div>';
     $('#goalHud').innerHTML = goal;
     // 기본 행동
     const bs = $('#basics');

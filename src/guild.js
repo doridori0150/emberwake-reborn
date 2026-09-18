@@ -12,6 +12,7 @@
   // 이전 저장에는 없는 칸을 채운다(제작 옵션·이벤트 기록).
   function ensure(G) {
     G.day = G.day || 1;
+    G.wear = G.wear || {};
     G.shop = G.shop || { done: false, notes: {}, demand: {}, last: null };
     G.gearOpts = G.gearOpts || {};
     G.evFlags = G.evFlags || {};
@@ -316,10 +317,19 @@
     G.shop.last = { day: G.day, gold, sold };
     return { ok: true, visits, gold, sold, unsold: list.map((sh, k) => ({ mat: sh.mat, qty: left[k] })).filter(x => x.qty > 0) };
   }
+  /* 지역 소진: 같은 지역을 연달아 털면 재료 노드 수량이 줄고(원정마다 +perRun), 날이 지나면 회복한다(하루 −recover).
+     다른 지역으로 가거나 며칠 쉬면 돌아온다. 수치는 RULES.deplete. */
+  const DEP = () => RULES.deplete;
+  const wearOf = (G, regionId) => ensure(G).wear[regionId] || 0;
+  const yieldOf = (G, regionId) => Math.max(0.4, 1 - DEP().step * wearOf(G, regionId));
   function newDay(G) {
     ensure(G);
     G.day += 1;
     G.shop.done = false;
+    for (const r of Object.keys(G.wear)) {
+      G.wear[r] = Math.max(0, G.wear[r] - DEP().recover);
+      if (!G.wear[r]) delete G.wear[r];
+    }
     for (const m of Object.keys(G.shop.demand)) {
       G.shop.demand[m] = Math.min(1, G.shop.demand[m] + SHOP().demandRecover);
       if (G.shop.demand[m] >= 1) delete G.shop.demand[m];
@@ -533,6 +543,7 @@
       flags: G.evFlags,
       seen: G.evSeen,
       known: G.cards.slice(),
+      yield: yieldOf(G, regionId),
       seed: seed || (state.meta?.created || 'ER') + '-' + G.runSeq,
       pinned: G.pinned
     });
@@ -577,6 +588,7 @@
     if (G.settled.length > 50) G.settled.shift();
     G.stats.runs++;
     G.regions[run.regionId].runs++;
+    ensure(G).wear[run.regionId] = Math.min(DEP().max, wearOf(G, run.regionId) + DEP().perRun); // 정산 뒤 newDay 가 하루치를 바로 회복시킨다
     const bank = (mat, qty) => {
       G.stock[mat] = (G.stock[mat] || 0) + qty;
       rep.gained[mat] = (rep.gained[mat] || 0) + qty;
@@ -625,6 +637,8 @@
 
   ER.guild = {
     evHave,
+    wearOf,
+    yieldOf,
     sanitize,
     selectHero,
     shopSlots,

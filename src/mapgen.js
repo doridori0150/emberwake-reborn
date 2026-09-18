@@ -250,7 +250,7 @@
     }
     return out;
   }
-  function applyRoom(rs, region, room, ids, hm) {
+  function applyRoom(rs, region, room, ids, hm, yieldMul = 1) {
     if (lintRoom(hm, region.id).some(i => i.level === 'error')) return false;
     const fx = hm.flip && rs ? R.int(rs, 'map', 2) : 0,
       fy = hm.flip && rs ? R.int(rs, 'map', 2) : 0,
@@ -275,7 +275,7 @@
       const o = { id: 'o' + ids.n++, kind: src.kind, x: X(src.x), y: Y(src.y) };
       if (src.kind === 'node') {
         o.mat = src.mat;
-        o.qty = src.qty || 2;
+        o.qty = Math.max(1, Math.round((src.qty || 2) * yieldMul));
       }
       if (src.kind === 'chest') {
         o.chest = src.chest || 'basic';
@@ -308,7 +308,7 @@
           break;
         }
       }
-      if (applyRoom(rs, region, room, ids, hm)) {
+      if (applyRoom(rs, region, room, ids, hm, opts?.yield ?? 1)) {
         if (force) opts.forced = true;
         return;
       }
@@ -398,6 +398,16 @@
         const n = cmin + R.int(rs, 'map', cmax - cmin + 1);
         for (let i = 0; i < n; i++) nodes.push({ kind: 'node', mat, qty: amin + R.int(rs, 'map', amax - amin + 1) });
       }
+      // 지역 소진(yield < 1): 재료별 총량을 줄인다. 노드 하나씩 깎아서 총량이 맞을 때까지 — 낱개 반올림보다 매끄럽다.
+      if ((opts?.yield ?? 1) < 1)
+        for (const mat of new Set(nodes.map(q => q.mat))) {
+          const mine = nodes.filter(q => q.mat === mat);
+          let sum = mine.reduce((t, q) => t + q.qty, 0);
+          const target = Math.max(1, Math.round(sum * opts.yield));
+          for (let i = mine.length - 1; sum > target; i = i ? i - 1 : mine.length - 1)
+            if (mine[i].qty > 1) (mine[i].qty--, sum--);
+            else if (mine.every(q => q.qty <= 1)) break;
+        }
       const vein = /^mine/.test(room.type),
         prizes = [],
         common = [];

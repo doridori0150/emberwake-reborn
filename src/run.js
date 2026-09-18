@@ -43,7 +43,7 @@
           0
         );
     const rs = R.seedStreams(String(o.seed));
-    const map = M.generate(o.regionId, rs, { knowSanctum: mods.knowSanctum, force: o.testRoom || null });
+    const map = M.generate(o.regionId, rs, { knowSanctum: mods.knowSanctum, force: o.testRoom || null, yield: o.yield ?? 1 });
     const maxHp = heroDef.hp + sum('hp') + mods.hpBonus + (perks.includes('ara_iron') ? 6 : 0);
     const run = {
       v: 1,
@@ -83,6 +83,7 @@
         burn: 0,
         gauge: 0
       },
+      yield: o.yield ?? 1,
       noCrit: !!o.noCrit,
       flatAttack: !!o.flatAttack,
       noEvents: !!o.noEvents || !!o.testRoom,

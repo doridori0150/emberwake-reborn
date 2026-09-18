@@ -20,6 +20,8 @@
     bagSlots: 6,
     gearSlots: 2,
     shop: { slots: 2, customers: 4, cheap: 0.75, fair: 1.0, high: 1.15, quickSell: 0.6, demandDrop: 0.05, demandRecover: 0.2 }, // 가게: 기본 진열 칸·손님 수, 반응 기준(가격÷손님이 생각한 값), 급매 비율, 수요 하락·회복
+    deplete: { perRun: 2, recover: 1, max: 4, step: 0.15 }, // 지역 소진: 원정마다 쌓이는 소진, 하루마다 회복, 상한, 소진 1당 재료 수량 감소율
+    warn: { hp: 0.3, time: 0.8 }, // 탈출 경고: 체력 비율, 붉은달까지 쓴 시간 비율
     gimmick: { chance: 0.5, barrelDmg: 5 }, // 던전 기믹: 적이 있는 방에 기믹이 놓일 확률, 폭발통 피해
     level: { guardRadius: 3, patrolDoorDist: 3, hazardMax: 3, handmade: 0.4 }, // 방 구성: 경비 반경, 순찰로와 문 사이 거리, 방당 경비 옆 위험 지형 수, 수제 방이 있을 때 쓰는 확률
     guardBlock: 3,
