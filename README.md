@@ -2,6 +2,8 @@
 
 망한 길드를 되살리는 **단독 모험가 미궁 탐사 덱빌딩**. 오프라인 싱글 플레이 웹 게임(HTML + Canvas, 외부 라이브러리·네트워크 없음).
 
+> **상태(2026-09-18): 보류.** 플레이 테스트 가능한 상태(3라운드, 커밋 `3eed52b`)에서 개발을 멈추고 킵한다. 재개할 때는 [docs/WORKLOG.md](docs/WORKLOG.md)의 "재개 시 바로 할 일"부터 본다.
+
 > 길드에서 투자 목표를 정한다 → 대원·덱·장비·목적지를 준비한다 → 미궁에서 탐사·전투·채집한다 → **더 들어갈지 지금 돌아갈지** 정한다 → 귀환문을 지나야 전리품이 남는다 → 시설·장비·카드·대원에 투자한다 → 길드와 다음 원정이 달라진다.
 
 참조 프로젝트 `../EmberwakePrototype`(v0.16.1)와는 **폴더·앱 ID·IndexedDB·포트가 모두 다르다.** 원본의 게임·저장·배포물은 읽기만 했고 수정하지 않았다.
@@ -10,7 +12,7 @@
 | --- | --- |
 | 앱 ID / DB | `emberwake-reborn` / IndexedDB `emberwake-reborn-db` |
 | 개발 서버 | `http://127.0.0.1:8812/` (원본은 8791) |
-| 포터블 빌드 | `dist/EmberwakeReborn-Portable.html` (단일 파일, 약 7.6MB) |
+| 포터블 빌드 | `dist/EmberwakeReborn-Portable.html` (단일 파일, 약 9.5MB, `npm run build`) |
 | **공개 플레이 주소** | https://doridori0150.github.io/emberwake-reborn/ (GitHub Pages, 누구나 접속 · 저장소 `doridori0150/emberwake-reborn`의 main에 push하면 자동 갱신) |
 | 웹 게시본 | https://claude.ai/artifact/JtDzd9h3Wo5PMyG6u8oFtt (기본 비공개, 페이지의 공유 메뉴에서 공개 범위 설정). `npm run build`가 만드는 `dist/EmberwakeReborn-Artifact.html`을 다시 게시해 갱신한다. 게시본에서는 파일 내려받기가 막혀 저장 이동은 **저장 관리 → 텍스트로 복사·붙여넣기**를 쓴다 |
 
