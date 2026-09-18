@@ -12,7 +12,19 @@ const ER = globalThis.ER,
 function bot(run, goal, trace, opts = {}) {
   let guard = 0;
   const stuck = () => {
-    throw new Error('교착: ' + JSON.stringify({ room: run.roomId, mode: run.mode, hero: run.hero, time: run.time }));
+    throw new Error(
+      '교착: ' +
+        JSON.stringify({
+          room: run.roomId,
+          mode: run.mode,
+          hero: { x: run.hero.x, y: run.hero.y, hp: run.hero.hp, mp: run.hero.mp, main: run.hero.main },
+          time: run.time,
+          enemies: RUN.alive(RUN.room(run)).map(e => [e.kind, e.x, e.y, e.hp, e.state, e.intent?.type, JSON.stringify(e.st)]),
+          fire: RUN.room(run).fire,
+          hand: run.deck.hand,
+          log: run.log.slice(-6)
+        })
+    );
   };
   const act = a => {
     const r = RUN.act(run, a);
@@ -55,7 +67,7 @@ function bot(run, goal, trace, opts = {}) {
         [-1, 0]
       ]
         .map(([dx, dy]) => [h.x + dx, h.y + dy])
-        .find(([sx, sy]) => rm.tiles[sy]?.[sx] === 'h' && RUN.pathTo(run, sx, sy));
+        .find(([sx, sy]) => (rm.tiles[sy]?.[sx] === 'h' || (rm.fire || []).some(f => f.x === sx && f.y === sy)) && RUN.pathTo(run, sx, sy));
     if (step && act({ t: 'move', x: step[0], y: step[1] }).ok) return act({ t: 'move', x, y });
     return r;
   };
@@ -68,7 +80,8 @@ function bot(run, goal, trace, opts = {}) {
       [-1, 0]
     ]) {
       const p = RUN.pathTo(run, x + dx, y + dy),
-        hz = RUN.room(run).tiles[y + dy]?.[x + dx] === 'h'; // 위험 지형 칸은 마지막 수단
+        rm0 = RUN.room(run),
+        hz = rm0.tiles[y + dy]?.[x + dx] === 'h' || (rm0.fire || []).some(f => f.x === x + dx && f.y === y + dy); // 위험 지형·불길 칸은 마지막 수단
       if (x + dx === run.hero.x && y + dy === run.hero.y) return 'there';
       if (p && (!best || p.cost + (hz ? 50 : 0) < best.cost)) best = { x: x + dx, y: y + dy, cost: p.cost + (hz ? 50 : 0), path: p.path };
     }
@@ -110,8 +123,16 @@ function bot(run, goal, trace, opts = {}) {
       )
         continue;
       if (run.stats.rounds > 400) stuck();
+      // 추적자에게 구석에 몰려 서로 못 때리는 대치가 길어지면(60라운드) 사람처럼 원정을 포기한다
+      if (run.stalker?.state === 'here' && run.stats.rounds - (run._lastHit || 0) > 60) {
+        act({ t: 'giveUp' });
+        continue;
+      }
+      const hp0 = run.hero.hp,
+        foeHp0 = RUN.alive(RUN.room(run)).reduce((n, e) => n + e.hp, 0);
       // 대원별 전투 봇(src/bot.js)에게 전투를 맡긴다
       ER.bot.fight(run, run.heroId, 60);
+      if (run.hero.hp !== hp0 || RUN.alive(RUN.room(run)).reduce((n, e) => n + e.hp, 0) !== foeHp0) run._lastHit = run.stats.rounds;
       if (run.status === 'active' && run.mode === 'combat') act({ t: 'end' });
       continue;
     }
@@ -141,10 +162,10 @@ function bot(run, goal, trace, opts = {}) {
               const p = RUN.preview(run, { t: 'card', i });
               if (
                 p.ok &&
-                (c.slot === 'bonus' || foes2.every(e => Math.abs(e.x - h.x) + Math.abs(e.y - h.y) > 1 === false)) &&
+                (c.slot !== 'main' || foes2.every(e => Math.abs(e.x - h.x) + Math.abs(e.y - h.y) > 1 === false)) &&
                 (!best || best.score < 1)
               )
-                best = best || { a: { t: 'card', i }, score: c.slot === 'bonus' ? 0.5 : 0.2 };
+                best = best || { a: { t: 'card', i }, score: c.slot !== 'main' ? 0.5 : 0.2 };
             }
             return;
           }
@@ -219,6 +240,13 @@ function bot(run, goal, trace, opts = {}) {
       retreat =
         done || h.hp < h.maxHp * 0.35 || (run.time > run.limit * 0.85 && !pushBoss) || (goal === 'loot' && run.time > run.limit * 0.5);
     if (retreat) {
+      // 수호자를 잡은 방의 귀환 균열이 있으면 그리로 나간다(사람도 그렇게 한다)
+      const rift = rm.objects.find(o => o.kind === 'portal' && o.rift);
+      if (rift) {
+        const r = moveNear(rift.x, rift.y);
+        if (r === 'there' && act({ t: 'interact', id: rift.id, method: 'extract' }).ok) continue;
+        if (r === 'moved') continue;
+      }
       if (run.roomId === 0) {
         const portal = rm.objects.find(o => o.kind === 'portal');
         const r = moveNear(portal.x, portal.y);

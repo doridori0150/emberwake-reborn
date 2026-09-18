@@ -147,7 +147,7 @@
         r = RESEARCH[c.source];
       name = '연구: ' + c.name;
       cost = Object.assign({}, r.cost, r.mats[t.id]);
-      effect = '[' + (c.slot === 'main' ? '주' : '보조') + '] ' + c.text;
+      effect = '[' + (D.ACTION_TYPES?.[c.slot] || c.slot) + ' · T' + (c.tier || 1) + '] ' + c.text;
       done = G.cards.includes(t.id);
       if (G.facilities.observatory < r.need) locked = '관측 연구실 ' + r.need + '단계 필요';
     } else if (t.kind === 'upgrade') {
@@ -451,6 +451,7 @@
     ensure(G);
     G.day += 1;
     G.shop.done = false;
+    G.shop.bought = {};
     for (const r of Object.keys(G.wear)) {
       G.wear[r] = Math.max(0, G.wear[r] - DEP().recover);
       if (!G.wear[r]) delete G.wear[r];
@@ -461,6 +462,35 @@
     }
   }
   const dayPhase = G => (ensure(G).shop.done ? 'dusk' : 'day');
+  /* 행상(금화 소비처): 날마다 열린 지역의 재료 몇 종을 기준가의 buyMul 배에 소량 판다. 품목·수량은 날짜로 정해지고, 산 만큼 그날은 줄어든다.
+     특수 재료(유물·두루마리·달조각)는 팔지 않는다. */
+  function market(G) {
+    ensure(G);
+    if (G.facilities.stash < 1) return [];
+    const pool = [...new Set(ORDER.filter(r => G.regions[r].unlocked).flatMap(r => REGIONS[r].materials))].filter(
+        m => MATERIALS[m] && !['relic', 'scroll', 'moonshard'].includes(m)
+      ),
+      R = shopRng('market:' + G.day),
+      picks = [];
+    while (pool.length && picks.length < SHOP().buyKinds) picks.push(pool.splice(Math.floor(R() * pool.length), 1)[0]);
+    const bought = G.shop.bought || {};
+    return picks.map(m => ({
+      mat: m,
+      price: Math.max(1, Math.round(MATERIALS[m].value * SHOP().buyMul)),
+      left: Math.max(0, SHOP().buyQty - (bought[m] || 0))
+    }));
+  }
+  function buyMat(G, mat, qty = 1) {
+    const it = market(G).find(x => x.mat === mat);
+    if (!it) return { ok: false, reason: '오늘은 팔지 않는 재료' };
+    if (it.left < qty) return { ok: false, reason: '오늘 물량이 다 떨어졌다' };
+    if (G.gold < it.price * qty) return { ok: false, reason: '금화 부족(' + it.price * qty + ')' };
+    G.gold -= it.price * qty;
+    G.stock[mat] = (G.stock[mat] || 0) + qty;
+    G.shop.bought = G.shop.bought || {};
+    G.shop.bought[mat] = (G.shop.bought[mat] || 0) + qty;
+    return { ok: true, gold: it.price * qty };
+  }
   function sell(G, mat, qty) {
     if (G.facilities.stash < 1) return { ok: false, reason: '회수 창고 1단계 필요' };
     if ((G.stock[mat] || 0) < qty || qty < 1) return { ok: false, reason: '수량 부족' };
@@ -700,6 +730,8 @@
       time: run.time,
       limit: run.limit,
       kills: run.stats.kills,
+      seed: run.seed,
+      log: run.log.slice(-60), // 정산 뒤에도 "방금 원정 기록"을 볼 수 있게 남긴다(진단 번들에도 들어간다)
       tried: (run.temp || []).filter(id => !G.cards.includes(id)),
       objective: false,
       newly: [],
@@ -713,7 +745,8 @@
     if (G.settled.length > 50) G.settled.shift();
     G.stats.runs++;
     G.regions[run.regionId].runs++;
-    ensure(G).wear[run.regionId] = Math.min(DEP().max, wearOf(G, run.regionId) + DEP().perRun); // 정산 뒤 newDay 가 하루치를 바로 회복시킨다
+    if (run.status === 'defeat' || run.time >= RULES.dayMinTime)
+      ensure(G).wear[run.regionId] = Math.min(DEP().max, wearOf(G, run.regionId) + DEP().perRun); // 정산 뒤 newDay 가 하루치를 바로 회복시킨다
     const bank = (mat, qty) => {
       G.stock[mat] = (G.stock[mat] || 0) + qty;
       rep.gained[mat] = (rep.gained[mat] || 0) + qty;
@@ -754,7 +787,9 @@
     }
     G.lastReport = rep;
     state.run = null;
-    newDay(G);
+    // 하루가 넘어가는 것은 미궁에서 시간을 실제로 쓴 원정뿐이다(들어갔다 바로 나오는 것으로 소진·수요를 초기화하지 못한다). 패배는 언제나 하루가 간다.
+    if (run.status === 'defeat' || run.time >= RULES.dayMinTime) newDay(G);
+    else rep.sameDay = true;
     rep.day = G.day;
     fire(G, 'returnGuild', { region: run.regionId, outcome: run.status });
     return rep;
@@ -778,6 +813,8 @@
     shopSlots,
     shopCustomers,
     shopDay,
+    market,
+    buyMat,
     newDay,
     dayPhase,
     quickPrice,

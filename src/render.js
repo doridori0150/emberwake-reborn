@@ -213,6 +213,9 @@
             dur: 170 * sp()
           });
           await sleep(170 * sp());
+        } else if (ev.t === 'fire') {
+          // 불붙은 바닥은 방 상태(rm.fire)를 직접 그린다. 여기서는 새로 붙은 순간만 번쩍인다.
+          this.fx.push({ kind: 'blast', tiles: ev.tiles, style: 'fire', t0: performance.now(), dur: 300 });
         } else if (ev.t === 'blast') {
           this.fx.push({ kind: 'blast', tiles: ev.tiles, style: ev.kind, t0: performance.now(), dur: 380 });
           ER.audio?.play('blast');
@@ -389,6 +392,25 @@
             for (let i = 0; i < 9; i++) ctx.fillRect(px + 14 + (i % 3) * 16, py + 14 + Math.floor(i / 3) * 16, 5, 5);
           }
         }
+      // 불붙은 바닥(잿불 단지): 일렁이는 주황 바닥 + 작은 불꽃
+      for (const f of rm.fire || []) {
+        const px = f.x * T,
+          py = f.y * T,
+          w = 0.5 + 0.5 * Math.sin(now / 90 + f.x * 3 + f.y * 5);
+        ctx.fillStyle = 'rgba(255,120,30,' + (0.28 + 0.14 * w) + ')';
+        ctx.fillRect(px + 2, py + 2, T - 4, T - 4);
+        ctx.fillStyle = 'rgba(255,220,120,' + (0.55 + 0.3 * w) + ')';
+        for (let i = 0; i < 3; i++) {
+          const fx = px + 10 + i * 18 + 3 * Math.sin(now / 70 + i),
+            fy = py + T - 12 - 8 * w - i * 3;
+          ctx.beginPath();
+          ctx.moveTo(fx, fy - 12 - 6 * w);
+          ctx.lineTo(fx + 5, fy);
+          ctx.lineTo(fx - 5, fy);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
       // 이동 가능 칸·사거리·경로
       if (ov.reach)
         for (const [x, y] of ov.reach) {
@@ -900,8 +922,9 @@
             : e.st.stun
               ? '✶ 기절'
               : e.intent
-                ? { aim: '◎ 조준 ', area: '▼ ', charge: '➤ 돌진 ', summon: '✦ 소환', blink: '✦ 점멸' }[e.intent.type] +
-                  (e.intent.type === 'area' ? e.intent.label + ' ' : '') +
+                ? ({ aim: '◎ 조준 ', area: '▼ ', throw: '◎ ', lunge: '⤴ ', charge: '➤ 돌진 ', summon: '✦ 소환', blink: '✦ 점멸' }[e.intent.type] ||
+                    '! ') +
+                  (['area', 'throw', 'lunge'].includes(e.intent.type) ? e.intent.label + ' ' : '') +
                   (e.intent.dmg || '')
                 : D.ENEMIES[e.kind].boss
                   ? '⚔ ' +

@@ -44,11 +44,20 @@ function invest(g, log) {
       }
     }
     if (pick.t.kind === 'gear') {
-      const h = g.selected.hero;
-      if (!D.GEAR[pick.t.id].heroes?.length || D.GEAR[pick.t.id].heroes.includes(h)) G.equip(g, h, pick.t.id);
+      // 만든 장비는 쓸 수 있는 대원 모두에게 끼워 본다(한 대원만 강해지는 편중을 막는다)
+      for (const h of g.roster) if (!D.GEAR[pick.t.id].heroes?.length || D.GEAR[pick.t.id].heroes.includes(h)) G.equip(g, h, pick.t.id);
     }
   }
   return bought;
+}
+function buyMissing(g, log) {
+  // 행상: 가장 앞선 투자 목표에 모자란 재료를 금화로 메운다(금화 소비처가 실제로 쓰이는지 본다)
+  const t = G.allTargets(g).find(x => !x.done && !x.locked && Object.keys(x.missing).length && Object.keys(x.missing).length <= 2);
+  if (!t) return;
+  for (const it of G.market(g)) {
+    let n = Math.min(it.left, t.missing[it.mat] || 0);
+    while (n-- > 0 && G.buyMat(g, it.mat).ok) log('  행상: ' + D.MATERIALS[it.mat].name + ' 구입 ' + it.price + '금');
+  }
 }
 function shop(g, log) {
   if (g.facilities.stash < 1 || g.shop.done) return;
@@ -70,7 +79,7 @@ function shop(g, log) {
         ')'
     );
 }
-function campaign(seed, maxRuns, verbose) {
+function campaign(seed, maxRuns, verbose, opts = {}) {
   const state = { meta: { created: 'camp-' + seed }, guild: G.newGame(), run: null },
     g = state.guild,
     log = m => verbose && console.log(m),
@@ -89,7 +98,7 @@ function campaign(seed, maxRuns, verbose) {
       break;
     }
     try {
-      bot(state.run, goal, false, { smart: true });
+      bot(state.run, goal, process.env.TRACE_RUN === String(i + 1), { smart: true });
     } catch (e) {
       events.push('원정 ' + (i + 1) + ' 예외: ' + e.message);
       break;
@@ -122,6 +131,8 @@ function campaign(seed, maxRuns, verbose) {
     }
     invest(g, log);
     shop(g, log);
+    buyMissing(g, log);
+    invest(g, log);
     ER.save.unpack(ER.save.pack(state)); // 저장 왕복이 깨지지 않는지
     if (g.regions.archive.boss) {
       events.push('원정 ' + (i + 1) + '에 별의 서고 수호자 격파 — 캠페인 완주');
@@ -137,7 +148,8 @@ function campaign(seed, maxRuns, verbose) {
     regions: Object.fromEntries(G.ORDER.map(r => [r, g.regions[r]])),
     day: g.day,
     gold: g.gold,
-    events
+    events,
+    state: opts.keepState ? state : undefined
   };
 }
 

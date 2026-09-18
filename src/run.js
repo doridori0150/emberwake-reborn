@@ -84,6 +84,7 @@
         gauge: 0
       },
       yield: o.yield ?? 1,
+      charges: RULES.charges,
       noCrit: !!o.noCrit,
       flatAttack: !!o.flatAttack,
       noEvents: !!o.noEvents || !!o.testRoom,
@@ -279,6 +280,7 @@
           k = key(nx, ny);
         if (!walkable(run, nx, ny)) continue;
         if (harm && tile(rm, nx, ny) === 'h' && k !== destKey) continue;
+        if (fireAt(rm, nx, ny) && k !== destKey) continue;
         if (tile(rm, nx, ny) === 'D' && doorInfo(run, nx, ny)?.sealed) continue;
         const c = cur.c + stepCost(run, cur.x, cur.y, nx, ny),
           old = best.get(k);
@@ -394,12 +396,15 @@
     }
     return null;
   }
-  function freeNear(run, x, y) {
+  // 문 바로 앞 칸인가(막는 소품을 두면 문이 막힌다)
+  const doorFront = (rm, x, y) => N4.some(([dx, dy]) => tile(rm, x + dx, y + dy) === 'D');
+  function freeNear(run, x, y, opts = {}) {
     const seen = new Set([key(x, y)]),
       q = [[x, y]];
     while (q.length) {
       const [cx, cy] = q.shift();
-      if (walkable(run, cx, cy, true) && tile(room(run), cx, cy) !== 'h') return [cx, cy];
+      if (walkable(run, cx, cy, true) && tile(room(run), cx, cy) !== 'h' && !(opts.keepDoors && doorFront(room(run), cx, cy)))
+        return [cx, cy];
       for (const [dx, dy] of N4) {
         const k = key(cx + dx, cy + dy);
         if (!seen.has(k) && !solid(tile(room(run), cx + dx, cy + dy)) && tile(room(run), cx + dx, cy + dy) !== 'D') {
@@ -558,7 +563,7 @@
       run.flags.bossDead = true;
       fireEvent(run, 'bossKill', {});
       rm.objects.push({ id: 'o' + run.nextId++, kind: 'objective', x: e.x, y: e.y });
-      const rift = freeNear(run, e.x + 1, e.y);
+      const rift = freeNear(run, e.x + 1, e.y, { keepDoors: true }); // 균열이 문 앞을 막지 않게
       if (rift) rm.objects.push({ id: 'o' + run.nextId++, kind: 'portal', rift: true, x: rift[0], y: rift[1] });
       say(run, REGIONS[run.regionId].objective.name + '이(가) 드러났다. 회수하고 귀환문으로 돌아가자.');
     }
@@ -586,6 +591,18 @@
     }
   }
   function hurtHero(run, n, src) {
+    const R0 = run.hero.reaction,
+      fired = !!(R0 && src?.melee && src.enemy && R0.trigger === 'melee'),
+      prevRet = run.hero.retaliate || 0;
+    if (fired) {
+      // 반응 발동: 이 공격 1회를 방어값만큼 받아내고, 살아남으면 되친다(아래 반격 계산에 합류). 이 공격에만 적용된다.
+      run.hero.reaction = null;
+      run.hero.block += R0.block;
+      run.hero.retaliate = Math.max(prevRet, R0.retaliate);
+      run.hero.reactionFired = true;
+      ev(run, { t: 'text', x: run.hero.x, y: run.hero.y, text: CARDS[R0.id].name + '!' });
+      say(run, CARDS[R0.id].name + ' 발동!');
+    }
     // src: {melee, enemy}
     const h = run.hero;
     if (run.heroId === 'noa' && src?.melee && h.moved >= 3 && !h.dodged) {
@@ -621,6 +638,7 @@
         hurtEnemy(run, src.enemy, calcDamage(run, src.enemy, back, {}), 'counter');
       }
     }
+    if (fired) run.hero.retaliate = prevRet;
     if (h.hp <= 0) {
       run.status = 'defeat';
       say(run, '쓰러졌다. 가방의 전리품을 잃는다.');
@@ -648,8 +666,9 @@
     e.st[kind] = (e.st[kind] || 0) + n;
     ev(run, { t: 'status', id: e.id, kind, n });
     if ((kind === 'root' || kind === 'stun') && !edef(e).boss && e.intent) cancelIntent(run, e);
-    if (kind === 'root' && e.intent?.type === 'aim') cancelIntent(run, e);
+    if (kind === 'root' && aiming(e)) cancelIntent(run, e);
   }
+  const aiming = e => e.intent?.type === 'aim' || e.intent?.type === 'throw';
   function cancelIntent(run, e) {
     if (e.intent) {
       e.intent = null;
@@ -834,6 +853,12 @@
     if (alertIn(room(run)).length || run.pursuers.length) return;
     run.mode = 'explore';
     const h = run.hero;
+    if (room(run).fire?.length) {
+      // 전투가 끝나면 불길도 사그라든다(탐사 중에는 적 턴이 없어 꺼질 기회가 없다)
+      room(run).fire = [];
+      ev(run, { t: 'fire', tiles: [] });
+    }
+    h.reaction = null;
     h.block = 0;
     h.retaliate = 0;
     h.thorns = 0;
@@ -942,6 +967,7 @@
       door = from.doors[dir],
       info = exitInfo(run, dir),
       h = run.hero;
+    from.fire = []; // 방을 떠나면 불길은 남기지 않는다
     for (const e of adjacentAlert(run, M.INSIDE[dir][0], M.INSIDE[dir][1]).filter(e => (edef(e).range || 1) === 1)) {
       if (run.status !== 'active') break;
       ev(run, { t: 'attack', who: e.id, tx: h.x, ty: h.y, anim: 'attack' });
@@ -1077,7 +1103,7 @@
         const nx = x + dx,
           ny = y + dy,
           nk = key(nx, ny);
-        if (seen.has(nk) || !walkable(run, nx, ny, true) || (tile(rm, nx, ny) === 'h' && hazard(run).dmg)) continue;
+        if (seen.has(nk) || !walkable(run, nx, ny, true) || (tile(rm, nx, ny) === 'h' && hazard(run).dmg) || fireAt(rm, nx, ny)) continue;
         seen.set(nk, k);
         q.push([nx, ny]);
       }
@@ -1173,7 +1199,14 @@
       }
     }
   }
-  function areaHit(run, e, tiles, dmg, label) {
+  function areaHit(run, e, tiles, dmg, label, budget) {
+    // 광역 공격도 한 적 턴의 공격 예산(RULES.maxAttacksPerPhase)을 쓴다: 예고를 여럿 겹쳐도 한 턴에 다 맞지 않는다
+    if (budget && budget.total >= RULES.maxAttacksPerPhase) {
+      ev(run, { t: 'text', x: e.x, y: e.y, text: '기회를 엿본다' });
+      say(run, edef(e).name + '의 ' + label + '은(는) 다른 적에게 밀려 미뤄졌다.');
+      return false;
+    }
+    if (budget) budget.total++;
     ev(run, { t: 'attack', who: e.id, tx: run.hero.x, ty: run.hero.y, anim: 'attack' });
     ev(run, { t: 'blast', tiles, kind: label });
     if (tiles.some(([x, y]) => x === run.hero.x && y === run.hero.y)) {
@@ -1185,6 +1218,27 @@
     return false;
   }
   const inRoom = (x, y) => x >= 1 && y >= 1 && x <= W - 2 && y <= H - 2;
+  /* 불붙은 바닥(rm.fire): 잿불 투척병이 남긴다. 영웅·적이 그 칸에 들어서면 RULES.fire.dmg 피해. 적 턴이 끝날 때마다 1턴씩 꺼진다.
+     영웅 경로 탐색은 위험 지형처럼 목적지일 때만 밟고, 적은 피해 간다. */
+  const fireAt = (rm, x, y) => (rm.fire || []).find(f => f.x === x && f.y === y);
+  function igniteTiles(run, tiles, turns) {
+    const rm = room(run);
+    rm.fire = rm.fire || [];
+    for (const [x, y] of tiles) {
+      if (solid(tile(rm, x, y)) || tile(rm, x, y) === 'D') continue;
+      const f = fireAt(rm, x, y);
+      if (f) f.left = Math.max(f.left, turns);
+      else rm.fire.push({ x, y, left: turns, fresh: true });
+    }
+    ev(run, { t: 'fire', tiles: rm.fire.map(f => [f.x, f.y]) });
+  }
+  function fireTick(run) {
+    const rm = room(run);
+    if (!rm.fire?.length) return;
+    // 이번 적 턴에 막 붙은 불은 이번에는 줄지 않는다(turns 턴을 온전히 탄다)
+    rm.fire = rm.fire.filter(f => (f.fresh ? (delete f.fresh, true) : --f.left > 0));
+    ev(run, { t: 'fire', tiles: rm.fire.map(f => [f.x, f.y]) });
+  }
   function lineTiles(run, e, dx, dy) {
     const out = [];
     let x = e.x + dx,
@@ -1241,7 +1295,7 @@
     }
     if (d.ai === 'ranged') {
       const can = () => dist(e, h) <= d.range && los(rm, e, h);
-      if (e.intent?.type === 'aim') {
+      if (aiming(e)) {
         const ok = can();
         e.intent = null;
         if (ok && strike(run, e, budget, true)) return;
@@ -1276,7 +1330,7 @@
       if (e.intent?.type === 'area') {
         const it = e.intent;
         e.intent = null;
-        areaHit(run, e, it.tiles, it.dmg, it.label);
+        areaHit(run, e, it.tiles, it.dmg, it.label, budget);
       }
       if (dist(e, h) < 3)
         moveEnemy(
@@ -1310,23 +1364,156 @@
       return;
     }
     if (d.ai === 'heavy') {
+      /* 중장: 예고 턴에 실행하는 강타는 전방 깊이 2×폭 3(고정, 추적 안 함). 예고하는 턴에는 곁의 상대를 약하게 견제한다(피해 −2, 예고 없음).
+         → 예고 칸만 벗어나면 끝이 아니라, 방어로 약타를 받아내거나 옆·뒤로 돌아가거나 밀치기·속박으로 예고를 끊어야 한다. 강타 뒤에는 빈틈. */
       if (e.intent?.type === 'area') {
         const it = e.intent;
         e.intent = null;
-        areaHit(run, e, it.tiles, it.dmg, it.label);
+        areaHit(run, e, it.tiles, it.dmg, it.label, budget);
+        if (e.hp > 0 && run.status === 'active') {
+          e.st.exposed = Math.max(e.st.exposed || 0, 2);
+          ev(run, { t: 'status', id: e.id, kind: 'exposed', n: 1 });
+        }
         return;
       }
       if (!adj()) moveEnemy(run, e, toHero(), speedOf(e));
-      if (e.hp > 0 && adj()) {
-        const [dx, dy] = [h.x - e.x, h.y - e.y];
-        const tiles = [
-          [h.x, h.y],
-          [h.x + dy, h.y + dx],
-          [h.x - dy, h.y - dx]
-        ].filter(([x, y]) => inRoom(x, y));
-        e.intent = { type: 'area', tiles, dmg: enemyDmg(run, e), label: '내려찍기' };
+      if (e.hp > 0 && adj() && !e.st.root) strike(run, e, budget, false, -2);
+      if (e.hp > 0 && run.status === 'active' && dist(e, h) <= 2) {
+        const [dx, dy] = dirToHero(run, e),
+          tiles = [];
+        for (let i = 1; i <= 2; i++)
+          for (let sd = -1; sd <= 1; sd++) {
+            const x = e.x + dx * i + dy * sd,
+              y = e.y + dy * i + dx * sd;
+            if (inRoom(x, y) && !solid(tile(rm, x, y))) tiles.push([x, y]);
+          }
+        e.intent = { type: 'area', tiles, dmg: enemyDmg(run, e) + 2, label: '깊은 내려찍기' };
         faceHero(run, e);
         ev(run, { t: 'text', x: e.x, y: e.y, text: '무기를 치켜든다' });
+      }
+      return;
+    }
+    if (d.ai === 'lunge') {
+      /* 도약: 2~4칸 거리에서 한 턴 웅크렸다가(예고: 지금 영웅이 선 칸의 십자) 다음 턴 그 자리로 뛰어들어 문다(피해 +1).
+         영웅이 한 칸만 비켜서면 착지한 자리에서 따라 물고(보정 없음), 두 칸 넘게 벗어나면 헛물을 켠다(빈틈 1).
+         곁에 붙어 있으면 그냥 문다. 속박이면 도약을 못 한다. 막는 법: 거리 벌리기·방어·시야 끊기·속박. */
+      if (e.intent?.type === 'lunge') {
+        const it = e.intent;
+        e.intent = null;
+        if (e.st.root) {
+          ev(run, { t: 'text', x: e.x, y: e.y, text: '속박' });
+          return;
+        }
+        // 착지는 예고의 가운데 칸(영웅이 서 있던 자리). 막혀 있으면 십자 중 영웅과 가장 가까운 빈 칸.
+        const land = it.tiles.filter(([x, y]) => walkable(run, x, y, true) && !fireAt(rm, x, y)),
+          c0 = land.find(([x, y]) => x === it.tiles[0][0] && y === it.tiles[0][1]);
+        const near =
+          c0 || land.sort((a, b) => Math.abs(a[0] - h.x) + Math.abs(a[1] - h.y) - (Math.abs(b[0] - h.x) + Math.abs(b[1] - h.y)))[0];
+        if (near) {
+          e.x = near[0];
+          e.y = near[1];
+          ev(run, { t: 'move', id: e.id, path: [near], fast: true });
+        }
+        const inTiles = it.tiles.some(([x, y]) => x === h.x && y === h.y);
+        // 예고 칸 안이면 제대로 물리고(+1), 한 칸만 비켜섰으면 착지한 자리에서 따라 물린다(보정 없음). 두 칸 이상 벗어나야 헛물.
+        if (inTiles && adj()) strike(run, e, budget, false, 1);
+        else if (adj()) strike(run, e, budget, false, 0);
+        else {
+          say(run, d.name + '의 도약을 피했다.');
+          e.st.exposed = Math.max(e.st.exposed || 0, 2); /* 적 턴 끝에 1 줄어 내 턴 동안 1 남는다 */
+          ev(run, { t: 'text', x: e.x, y: e.y, text: '헛물' });
+        }
+        return;
+      }
+      if (adj()) {
+        strike(run, e, budget, false);
+        return;
+      }
+      if (dist(e, h) >= 2 && dist(e, h) <= 4 && los(rm, e, h) && !e.st.root) {
+        e.intent = { type: 'lunge', tiles: plus(h.x, h.y), dmg: enemyDmg(run, e) + 1, label: '도약' };
+        faceHero(run, e);
+        ev(run, { t: 'text', x: e.x, y: e.y, text: '웅크린다' });
+        return;
+      }
+      moveEnemy(run, e, toHero(), speedOf(e));
+      if (e.hp > 0 && adj()) strike(run, e, budget, false);
+      return;
+    }
+    if (d.ai === 'shield') {
+      /* 방패병: 예고 없이 방패로 밀친다(피해 −2, 영웅을 1칸 밀어냄). 등 뒤에 벽·소품·적이 있으면 밀리지 않는 대신 피해 +2(찧기).
+         막는 법: 방어로 받아내기, 곁에 붙지 않기(원거리), 옆·뒤로 돌아가 정면 방패를 피하기. 밀려난 뒤에는 이탈 없이 거리를 벌 수 있다. */
+      if (!adj()) moveEnemy(run, e, toHero(), speedOf(e));
+      if (e.hp <= 0 || !adj()) return;
+      const dx = Math.sign(h.x - e.x),
+        dy = Math.sign(h.y - e.y),
+        tx = h.x + dx,
+        ty = h.y + dy,
+        canPush = inRoom(tx, ty) && walkable(run, tx, ty, false) && tile(rm, tx, ty) !== 'D';
+      const hp0 = h.hp,
+        hit = strike(run, e, budget, false, canPush ? -2 : 0);
+      if (!hit || run.status !== 'active') return;
+      if (canPush) {
+        h.x = tx;
+        h.y = ty;
+        ev(run, { t: 'move', id: 'hero', path: [[tx, ty]], fast: true });
+        ev(run, { t: 'text', x: tx, y: ty, text: '밀려남' });
+        say(run, d.name + '의 방패에 밀려났다.');
+        if (tile(rm, tx, ty) === 'h' && hazard(run).dmg) {
+          say(run, hazard(run).name + '에 긁혔다.');
+          hurtHero(run, hazard(run).dmg, {});
+        } else if (fireAt(rm, tx, ty)) {
+          say(run, '불길 속으로 밀려났다.');
+          hurtHero(run, RULES.fire.dmg, {});
+        }
+      } else if (h.hp < hp0) {
+        ev(run, { t: 'text', x: h.x, y: h.y, text: '찧기 +2' });
+        say(run, '벽에 찧었다.');
+      }
+      return;
+    }
+    if (d.ai === 'firepot') {
+      /* 잿불 투척병: 사수처럼 한 턴 조준한 뒤, 영웅이 서 있던 칸의 십자에 잿불 단지를 던진다(맞으면 피해). 그 칸들은 RULES.fire.turns 턴 동안 불탄다.
+         예고 칸에서 나가면 안 맞지만, 불탄 바닥이 길을 막는다 — 단지를 던지기 전에 시야를 끊거나, 근접 타격으로 조준을 흐트러뜨리자. */
+      const can = () => dist(e, h) <= d.range && los(rm, e, h);
+      if (e.intent?.type === 'throw') {
+        const it = e.intent;
+        e.intent = null;
+        if (h.smoke) {
+          ev(run, { t: 'text', x: e.x, y: e.y, text: '연막에 막힘' });
+          return;
+        }
+        if (budget.ranged >= RULES.maxRangedPerPhase) {
+          ev(run, { t: 'text', x: e.x, y: e.y, text: '기회를 엿본다' });
+          return;
+        }
+        budget.ranged++;
+        ev(run, { t: 'proj', fx: e.x, fy: e.y, tx: it.tiles[0][0], ty: it.tiles[0][1], kind: 'fire' });
+        areaHit(run, e, it.tiles, it.dmg, it.label, budget);
+        if (run.status === 'active') igniteTiles(run, it.tiles, RULES.fire.turns);
+        return;
+      }
+      if (adj())
+        moveEnemy(
+          run,
+          e,
+          enemyPath(run, e, (x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) >= 3 && los(rm, { x, y }, h)),
+          2
+        );
+      else if (!can())
+        moveEnemy(
+          run,
+          e,
+          enemyPath(
+            run,
+            e,
+            (x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) <= d.range && Math.abs(x - h.x) + Math.abs(y - h.y) >= 2 && los(rm, { x, y }, h)
+          ),
+          speedOf(e)
+        );
+      if (e.hp > 0 && can() && dist(e, h) >= 2) {
+        e.intent = { type: 'throw', tiles: plus(h.x, h.y), dmg: enemyDmg(run, e), label: '잿불 단지' };
+        faceHero(run, e);
+        ev(run, { t: 'text', x: e.x, y: e.y, text: '단지를 든다' });
       }
       return;
     }
@@ -1340,7 +1527,7 @@
       const it = e.intent;
       e.intent = null;
       let rest = it.type === 'summon' || it.type === 'blink';
-      if (it.type === 'area') areaHit(run, e, it.tiles, it.dmg, it.label);
+      if (it.type === 'area') areaHit(run, e, it.tiles, it.dmg, it.label, budget);
       else if (it.type === 'charge') {
         const path = [];
         let hit = false;
@@ -1358,7 +1545,12 @@
           e.y = last[1];
           ev(run, { t: 'move', id: e.id, path, fast: true });
         }
+        if (hit && budget.total >= RULES.maxAttacksPerPhase) {
+          hit = false;
+          say(run, d.name + '의 돌진이 다른 적에게 밀려 멈췄다.');
+        }
         if (hit) {
+          budget.total++;
           ev(run, { t: 'attack', who: e.id, tx: h.x, ty: h.y, anim: 'attack' });
           say(run, d.name + '의 돌진 적중!');
           hurtHero(run, it.dmg, { melee: true, enemy: e });
@@ -1503,6 +1695,7 @@
         ev(run, { t: 'alert', id: e.id });
       }
     }
+    fireTick(run);
     if (run.status !== 'active') return;
     arrivePursuers(run);
     advance(run, RULES.time.round);
@@ -1520,6 +1713,9 @@
     h.block = 0;
     h.retaliate = 0;
     h.smoke = false;
+    h.reaction = null;
+    h.reactionFired = false;
+    h.freeUsed = [];
     h.mp = moveMax(run);
     h.main = 1;
     h.bonus = 1;
@@ -1604,12 +1800,22 @@
     if (c.special === 'detonate' && !(e.st.burn || e.st.poison)) return '터뜨릴 화상·중독이 없다';
     return null;
   }
-  function slotReason(run, slot) {
+  // 행동 타입별 사용 가능 여부. 카드(c)를 주면 충전·자유 행동 횟수도 본다.
+  function slotReason(run, slot, c) {
+    const h = run.hero;
+    if (c && c.charge && (run.charges || 0) < c.charge) return '충전이 없다(T3 카드는 원정당 ' + RULES.charges + '회, 야영에서 회복)';
+    if (c && slot === 'free' && run.mode === 'combat' && h.freeUsed?.includes(c.id)) return '같은 자유 행동은 턴당 1회';
     if (run.mode !== 'combat') return null;
-    if (slot === 'main' && run.hero.main < 1) return '주 행동을 이미 썼다';
-    if (slot === 'bonus' && run.hero.bonus < 1) return '보조 행동을 이미 썼다';
+    if (slot === 'main' && h.main < 1) return '주 행동을 이미 썼다';
+    if (slot === 'bonus' && h.bonus < 1) return '보조 행동을 이미 썼다';
+    if (slot === 'reaction' && h.reaction) return '이미 반응을 걸어 두었다(' + CARDS[h.reaction.id].name + ')';
     return null;
   }
+  const costText = (run, c) =>
+    run.mode === 'combat'
+      ? (c.slot === 'main' ? '주 행동' : c.slot === 'bonus' ? '보조 행동' : c.slot === 'reaction' ? '반응(무료)' : '자유') +
+        (c.charge ? ' · 충전 ' + c.charge : '')
+      : '시간 ' + RULES.time.card + (c.charge ? ' · 충전 ' + c.charge : '');
 
   // 미리보기: RNG를 소비하지 않는다. {ok, reason, cost, dmg:[{id,min,max,kill}], tiles, text}
   function killNote(run, e, d) {
@@ -1627,12 +1833,16 @@
       if (!p) return { ok: false, reason: '갈 수 없는 칸' };
       if (run.mode === 'combat' && p.cost > h.mp)
         return { ok: false, reason: '이동력 부족(' + p.cost + '/' + h.mp + ')', path: p.path, cost: p.cost };
-      const hz = tile(rm, a.x, a.y) === 'h' && hazard(run).dmg;
+      const hz = tile(rm, a.x, a.y) === 'h' && hazard(run).dmg,
+        fire = fireAt(rm, a.x, a.y) ? RULES.fire.dmg : 0;
       return {
         ok: true,
         path: p.path,
         cost: run.mode === 'combat' ? p.cost : 0,
-        text: (run.mode === 'combat' ? '이동 ' + p.cost : '이동') + (hz ? ' · ' + hazard(run).name + ' 피해 ' + hazard(run).dmg : '')
+        text:
+          (run.mode === 'combat' ? '이동 ' + p.cost : '이동') +
+          (hz ? ' · ' + hazard(run).name + ' 피해 ' + hazard(run).dmg : '') +
+          (fire ? ' · 불길 피해 ' + fire : '')
       };
     }
     if (a.t === 'attack') {
@@ -1661,12 +1871,12 @@
     if (a.t === 'card') {
       const c = card(run, h && run.deck.hand[a.i]);
       if (!c) return { ok: false, reason: '카드 없음' };
-      const why = slotReason(run, c.slot) || checkTarget(run, c, a.target);
+      const why = slotReason(run, c.slot, c) || checkTarget(run, c, a.target);
       if (why) return { ok: false, reason: why, card: c };
       const out = {
         ok: true,
         card: c,
-        cost: run.mode === 'combat' ? (c.slot === 'main' ? '주 행동' : '보조 행동') : '시간 ' + RULES.time.card,
+        cost: costText(run, c),
         dmg: [],
         tiles: []
       };
@@ -1756,9 +1966,12 @@
   }
 
   // ───────── 행동 실행
-  function spend(run, slot) {
-    if (run.mode === 'combat') run.hero[slot] -= 1;
-    else advance(run, RULES.time.card);
+  function spend(run, slot, c) {
+    if (c?.charge) run.charges = Math.max(0, (run.charges || 0) - c.charge);
+    if (run.mode === 'combat') {
+      if (slot === 'main' || slot === 'bonus') run.hero[slot] -= 1;
+      else if (slot === 'free' && c) (run.hero.freeUsed = run.hero.freeUsed || []).push(c.id);
+    } else advance(run, RULES.time.card);
   }
   function face(run, tx, ty) {
     const h = run.hero,
@@ -1806,6 +2019,12 @@
         ev(run, { t: 'move', id: 'hero', path: walked.splice(0) });
         say(run, hazard(run).name + '에 긁혔다.');
         hurtHero(run, hazard(run).dmg, {});
+        if (run.status !== 'active') return { ok: true };
+      }
+      if (fireAt(rm, x, y)) {
+        ev(run, { t: 'move', id: 'hero', path: walked.splice(0) });
+        say(run, '불길을 밟았다.');
+        hurtHero(run, RULES.fire.dmg, {});
         if (run.status !== 'active') return { ok: true };
       }
       reveal(run);
@@ -1861,7 +2080,7 @@
     if (atk.range > 1) ev(run, { t: 'proj', fx: h.x, fy: h.y, tx: e.x, ty: e.y, kind: 'bolt' });
     h.focus = 0;
     hurtEnemy(run, e, n);
-    if (atk.range <= 1 && e.hp > 0 && e.intent?.type === 'aim') cancelIntent(run, e);
+    if (atk.range <= 1 && e.hp > 0 && aiming(e)) cancelIntent(run, e);
     if (run.heroId === 'noa') h.mp += 1;
     checkCombatEnd(run);
     return { ok: true };
@@ -1902,7 +2121,7 @@
       hurtEnemy(run, e, n, 'burn');
       spread.forEach(x => addStatus(run, x, 'burn', 1));
     } else if (n) hurtEnemy(run, e, n);
-    if (c.range <= 1 && e.hp > 0 && e.intent?.type === 'aim') cancelIntent(run, e);
+    if (c.range <= 1 && e.hp > 0 && aiming(e)) cancelIntent(run, e);
     if (e.hp > 0) {
       if (c.burn) addStatus(run, e, 'burn', c.burn);
       if (c.poison) addStatus(run, e, 'poison', c.poison);
@@ -1961,7 +2180,7 @@
     smoke(run) {
       run.hero.smoke = true;
       alive(room(run)).forEach(e => {
-        if (e.intent?.type === 'aim') cancelIntent(run, e);
+        if (aiming(e)) cancelIntent(run, e);
       });
     },
     taunt(run) {
@@ -1970,7 +2189,7 @@
       alive(rm)
         .filter(e => dist(e, h) <= 4 && dist(e, h) > 1)
         .forEach(e => {
-          if (e.intent?.type === 'aim') cancelIntent(run, e);
+          if (aiming(e)) cancelIntent(run, e);
           if (e.state !== 'alert') {
             e.state = 'alert';
             ev(run, { t: 'alert', id: e.id });
@@ -2032,9 +2251,17 @@
       const e = alive(rm).find(x => x.id === a.target.id);
       if (e) engage(run, e);
     }
-    spend(run, c.slot);
+    spend(run, c.slot, c);
     run.deck.hand.splice(a.i, 1);
     (c.exhaust ? run.deck.exhaust : run.deck.discard).push(id);
+    if (c.slot === 'reaction') {
+      // 반응: 걸어 두고, 적 턴에 지정 사건(trigger)이 오면 1회 발동한다. 다음 내 턴이 오면 사라진다.
+      h.reaction = { id: c.id, block: c.block || 0, retaliate: c.retaliate || 0, trigger: c.trigger || 'melee' };
+      say(run, c.name + ' — 반응을 걸어 두었다.');
+      ev(run, { t: 'text', x: h.x, y: h.y, text: '반응 대기' });
+      checkCombatEnd(run);
+      return { ok: true };
+    }
     say(run, '카드: ' + c.name);
     if (a.target?.x != null || list[0]) face(run, list[0]?.x ?? a.target.x, list[0]?.y ?? a.target.y);
     ev(run, {
@@ -2198,6 +2425,13 @@
       } else out.push({ method: 'open', label: def.name + ' 열기', cost: cost(T.chest) });
     }
     if (o.kind === 'device' && !o.on) out.push({ method: 'device', label: '봉인 장치 작동', cost: cost(T.device) });
+    if (o.kind === 'camp' && !o.used && !combat && (run.charges || 0) < RULES.charges)
+      out.push({
+        method: 'recharge',
+        label: '휴식: 충전 +1 (T3 카드용, ' + (run.charges || 0) + '/' + RULES.charges + ')',
+        cost: '시간 ' + T.rest,
+        note: '체력 회복 대신'
+      });
     if (o.kind === 'camp' && !o.used && !combat)
       out.push({ method: 'rest', label: '휴식: 체력 ' + Math.ceil(run.hero.maxHp * 0.4) + ' 회복(원정당 1회)', cost: '시간 ' + T.rest });
     if (o.kind === 'altar' && !o.used && !combat) {
@@ -2363,13 +2597,18 @@
           ? '봉인이 풀렸다. 성소로 가는 문이 열렸다!'
           : '장치가 돌아간다. 남은 봉인 장치 ' + (run.devicesNeed - run.devicesOn) + '.'
       );
-    } else if (a.method === 'rest') {
+    } else if (a.method === 'rest' || a.method === 'recharge') {
       advance(run, T.rest);
       o.used = true;
-      const n = Math.min(Math.ceil(h.maxHp * 0.4), h.maxHp - h.hp);
-      h.hp += n;
-      ev(run, { t: 'dmg', id: 'hero', x: h.x, y: h.y, n, kind: 'heal' });
-      say(run, '모닥불 곁에서 쉬었다. 체력 +' + n + '.');
+      if (a.method === 'recharge') {
+        run.charges = Math.min(RULES.charges, (run.charges || 0) + 1);
+        say(run, '모닥불 곁에서 숨을 골랐다. 충전 +1 (' + run.charges + '/' + RULES.charges + ').');
+      } else {
+        const n = Math.min(Math.ceil(h.maxHp * 0.4), h.maxHp - h.hp);
+        h.hp += n;
+        ev(run, { t: 'dmg', id: 'hero', x: h.x, y: h.y, n, kind: 'heal' });
+        say(run, '모닥불 곁에서 쉬었다. 체력 +' + n + '.');
+      }
     } else if (a.method === 'altar') {
       advance(run, 1);
       o.used = true;
@@ -2711,7 +2950,18 @@
   // 화면용: 적이 다음 턴에 닿을 수 있는 위협 칸
   function threatTiles(run, e) {
     const d = edef(e);
-    if (e.intent?.tiles?.length) return e.intent.tiles;
+    if (e.intent?.tiles?.length) {
+      // 수호자는 예고를 실행한 뒤에도 다가와 후려친다 → 예고 칸과 접근 범위를 함께 보여 준다
+      if (!d.boss || ['summon', 'blink'].includes(e.intent.type)) return e.intent.tiles;
+      const s = new Map();
+      for (const [x, y] of e.intent.tiles) s.set(key(x, y), [x, y]);
+      for (const [x, y] of moveThreat(run, e)) s.set(key(x, y), [x, y]);
+      return [...s.values()];
+    }
+    return moveThreat(run, e);
+  }
+  function moveThreat(run, e) {
+    const d = edef(e);
     if (d.ai === 'none') return [];
     if (d.range) {
       const out = [];
@@ -2753,13 +3003,14 @@
     const s = new Map();
     for (const o of room(run).objects) if (o.kind === 'barrel' && o.fuse) for (const [x, y] of plus(o.x, o.y)) s.set(key(x, y), [x, y]);
     for (const e of alertIn(room(run))) {
-      if (e.intent?.tiles?.length || e.st.stun) continue;
+      if (e.st.stun) continue;
       for (const [x, y] of threatTiles(run, e)) s.set(key(x, y), [x, y]);
     }
     return [...s.values()];
   }
   function intentText(run, e) {
-    const d = edef(e);
+    const d = edef(e),
+      h = run.hero;
     if (e.hp <= 0) return '';
     if (e.st.stun) return '기절';
     if (e.state !== 'alert')
@@ -2774,6 +3025,15 @@
     if (d.ai === 'none') return '움직이지 않는다';
     if (e.intent) return e.intent.label + (e.intent.dmg ? ' ' + e.intent.dmg : '');
     if (d.ai === 'ranged') return '자리 잡고 조준';
+    if (d.ai === 'firepot') return '자리 잡고 잿불 단지 조준(맞은 자리는 ' + RULES.fire.turns + '턴 불탄다)';
+    if (d.ai === 'lunge')
+      return dist(e, h) <= 4 && dist(e, h) >= 2
+        ? '웅크렸다가 다음 턴 내가 선 자리로 도약 ' + (enemyDmg(run, e) + 1) + ' — 2칸 넘게 벗어나야 헛물(1칸이면 따라 물림)'
+        : '다가와 물기 ' + enemyDmg(run, e);
+    if (d.ai === 'shield')
+      return '다가와 방패로 밀치기 ' + Math.max(1, enemyDmg(run, e) - 2) + '(1칸 밀림) — 등 뒤가 막혀 있으면 찧기 ' + enemyDmg(run, e);
+    if (d.ai === 'heavy')
+      return '다가와 견제 ' + Math.max(1, enemyDmg(run, e) - 2) + ' → 다음 턴 깊은 내려찍기 ' + (enemyDmg(run, e) + 2) + ' 예고(전방 2×3)';
     if (d.ai === 'caster') return '문양 또는 치유';
     if (d.ai === 'boss')
       return (
@@ -2803,6 +3063,8 @@
     create,
     act,
     preview,
+    slotReason,
+    costText,
     room,
     card,
     los,

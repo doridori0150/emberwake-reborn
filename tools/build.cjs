@@ -6,6 +6,26 @@ const fs = require('fs'),
 const ROOT = path.resolve(__dirname, '..'),
   read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const pkg = JSON.parse(read('package.json'));
+// 빌드 정보(설정 → 진단 정보 복사에 들어간다). GitHub Pages 는 index.html 을 그대로 쓰므로 파일로 남겨 함께 커밋한다.
+const builtAt = new Date().toISOString();
+let commit = 'nogit';
+try {
+  commit = require('child_process')
+    .execSync('git rev-parse --short HEAD', { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] })
+    .toString()
+    .trim();
+} catch (e) {}
+fs.writeFileSync(
+  path.join(ROOT, 'src', 'build-info.js'),
+  [
+    '/* tools/build.cjs 가 만든다. 손으로 고치지 않는다. */',
+    '(function (g) {',
+    '  g.ER = g.ER || {};',
+    '  g.ER.BUILD = ' + JSON.stringify({ version: pkg.version, commit, builtAt }) + ';',
+    '})(globalThis);',
+    ''
+  ].join('\n')
+);
 let html = read('index.html');
 const manifest = JSON.parse(read('assets/manifest.json')),
   cache = new Map();
@@ -35,7 +55,8 @@ html = html.replace(/<script src="([^"]+)"><\/script>/g, (m, src) =>
       ) +
       '\n</script>'
 );
-html = html.replace('<title>', '<!-- Emberwake Reborn v' + pkg.version + ' portable build ' + new Date().toISOString() + ' -->\n<title>');
+html = html.replace('<title>', '<!-- Emberwake Reborn v' + pkg.version + ' portable build ' + builtAt + ' -->\n<title>');
+
 fs.mkdirSync(path.join(ROOT, 'dist'), { recursive: true });
 const out = path.join(ROOT, 'dist', 'EmberwakeReborn-Portable.html');
 fs.writeFileSync(out, html);

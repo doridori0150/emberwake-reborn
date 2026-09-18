@@ -1196,6 +1196,7 @@ test('마을·가게: 가격에 따라 손님 반응이 갈리고 수첩·수요
   const state = { meta: { created: 'T' }, guild: g, run: null };
   assert.ok(G.startRun(state, 'day').ok);
   state.run.status = 'extracted';
+  state.run.time = 10;
   const day = g.day;
   G.settle(state);
   assert.equal(g.day, day + 1);
@@ -1505,6 +1506,7 @@ test('지역 소진·재생: 같은 지역을 연달아 털면 재료가 줄고,
   assert.ok(G.startRun(state, 'w1').ok);
   const a1 = avg(state.run);
   state.run.status = 'extracted';
+  state.run.time = 10;
   G.settle(state);
   assert.equal(G.wearOf(g, 'verdant'), R.perRun - R.recover, '원정 뒤 소진이 쌓이고 하루치는 바로 회복');
   assert.ok(G.startRun(state, 'w1').ok);
@@ -1515,6 +1517,7 @@ test('지역 소진·재생: 같은 지역을 연달아 털면 재료가 줄고,
   for (let i = 0; i < 4; i++) {
     assert.ok(G.startRun(state, 'w' + i).ok);
     state.run.status = 'extracted';
+    state.run.time = 10;
     G.settle(state);
   }
   assert.equal(G.wearOf(g, 'verdant'), R.max - R.recover, '상한');
@@ -1601,4 +1604,159 @@ test('캠페인 봇: 새 게임에서 전체 루프(원정→정산→투자→�
   assert.ok(!out.events.some(e => /예외|실패/.test(e)), out.events.join(' / '));
   assert.ok(out.runs >= 25);
   assert.ok(out.facilities.workshop >= 1);
+});
+
+test('행동 타입 4종: 반응은 주·보조를 쓰지 않고 적의 근접 공격 1회에만 발동, 자유 행동은 같은 카드 턴당 1회', () => {
+  const run = arena('ara', [['goblin', 4, 4]], { hand: ['riposte', 'strike', 'harvest', 'harvest'] });
+  const id = RUN.room(run).enemies[0].id,
+    h = run.hero;
+  assert.equal(D.CARDS.riposte.slot, 'reaction');
+  assert.equal(D.CARDS.harvest.slot, 'free');
+  assert.ok(RUN.act(run, { t: 'card', i: 0 }).ok, '반응 카드 사용');
+  assert.equal(h.main, 1, '반응은 주 행동을 쓰지 않는다');
+  assert.equal(h.bonus, 1, '반응은 보조 행동을 쓰지 않는다');
+  assert.ok(h.reaction && h.reaction.id === 'riposte', '반응이 걸려 있다');
+  assert.ok(RUN.act(run, { t: 'card', i: 1 }).ok, '자유 행동');
+  assert.equal(h.main, 1);
+  assert.equal(h.bonus, 1);
+  assert.equal(RUN.act(run, { t: 'card', i: 1 }).ok, false, '같은 자유 행동은 턴당 1회');
+  assert.ok(RUN.act(run, { t: 'card', i: 0, target: { id } }).ok, '주 행동은 그대로 남아 있다');
+  const e = RUN.room(run).enemies[0];
+  e.hp = e.maxHp = 40;
+  const hp0 = h.hp;
+  RUN.act(run, { t: 'end' });
+  assert.ok(
+    run.log.some(l => l.includes('반격 태세 발동')),
+    '근접 공격을 받아 반응이 발동했다'
+  );
+  assert.equal(h.hp, hp0, '방어 4로 고블린의 일격을 받아냈다');
+  assert.ok(e.hp < 40, '되치기 피해');
+  assert.equal(h.reaction, null, '반응은 1회만, 다음 내 턴에는 사라진다');
+  assert.equal(h.retaliate, 0, '되치기는 그 공격에만');
+  assert.equal(h.freeUsed.length, 0, '자유 행동 횟수는 턴마다 초기화');
+});
+
+test('T3 충전: 연막·지면 강타는 원정당 공용 충전을 쓰고, 다 쓰면 못 쓰며, 야영에서 체력 대신 1 회복한다', () => {
+  assert.equal(D.CARDS.smoke.charge, 1);
+  assert.equal(D.CARDS.quake.tier, 3);
+  const run = arena('ara', [['goblin', 4, 4]], { hand: ['smoke', 'quake', 'smoke', 'strike'] });
+  assert.equal(run.charges, D.RULES.charges);
+  assert.ok(RUN.act(run, { t: 'card', i: 0 }).ok);
+  assert.equal(run.charges, D.RULES.charges - 1);
+  assert.ok(RUN.act(run, { t: 'card', i: 0 }).ok, '지면 강타(주 행동)');
+  assert.equal(run.charges, D.RULES.charges - 2);
+  run.hero.bonus = 1;
+  const p = RUN.preview(run, { t: 'card', i: 0 });
+  assert.equal(p.ok, false);
+  assert.match(p.reason, /충전/);
+  assert.match(RUN.costText(run, D.CARDS.smoke), /충전 1/);
+  // 야영: 충전 회복 선택지
+  RUN.room(run).enemies = [];
+  run.mode = 'explore';
+  const o = { id: 'camp1', kind: 'camp', used: false, x: run.hero.x + 1, y: run.hero.y };
+  RUN.room(run).objects.push(o);
+  const opts = RUN.interactions(run, o).map(i => i.method);
+  assert.ok(opts.includes('recharge') && opts.includes('rest'));
+  assert.ok(RUN.act(run, { t: 'interact', id: 'camp1', method: 'recharge' }).ok);
+  assert.equal(run.charges, D.RULES.charges - 1);
+  assert.equal(RUN.interactions(run, o).length, 0, '야영은 1회');
+  assert.equal(D.CARDS.smoke.exhaust, false, '충전 카드는 소진되지 않는다(버림 더미로)');
+});
+
+test('적 패턴 3종: 도약(1칸 비켜도 따라 물림, 2칸이면 헛물·빈틈), 방패 밀치기(1칸 밀림·벽이면 찧기), 잿불 단지(불붙은 바닥은 밟으면 피해, 전투 끝나면 꺼짐)', () => {
+  // 도약: 사냥개가 3칸 거리에서 웅크리고, 다음 턴 뛰어든다
+  let run = arena('ara', [['hound', 6, 4]], { hand: ['strike', 'strike', 'strike', 'strike'] });
+  let e = RUN.room(run).enemies[0],
+    h = run.hero;
+  assert.equal(D.ENEMIES.hound.ai, 'lunge');
+  RUN.act(run, { t: 'end' });
+  assert.equal(e.intent?.type, 'lunge', '웅크린다');
+  assert.ok(
+    e.intent.tiles.some(([x, y]) => x === h.x && y === h.y),
+    '예고는 영웅이 선 칸의 십자'
+  );
+  // 2칸 벗어나면 헛물
+  RUN.act(run, { t: 'move', x: 3, y: 2 });
+  const hp0 = h.hp;
+  RUN.act(run, { t: 'end' });
+  assert.equal(h.hp, hp0, '2칸 벗어나면 안 맞는다');
+  assert.ok(e.st.exposed >= 1, '헛물 → 빈틈');
+  assert.equal(e.intent, null);
+  // 1칸만 비키면 착지 후 따라 물린다
+  run = arena('ara', [['hound', 6, 4]], { hand: ['strike', 'strike', 'strike', 'strike'] });
+  e = RUN.room(run).enemies[0];
+  h = run.hero;
+  RUN.act(run, { t: 'end' });
+  RUN.act(run, { t: 'move', x: 2, y: 4 });
+  const hp1 = h.hp;
+  RUN.act(run, { t: 'end' });
+  assert.ok(h.hp < hp1, '1칸 비킨 정도로는 물린다');
+
+  // 방패병: 예고 없이 밀친다. 등 뒤가 비어 있으면 1칸 밀리고 피해 −2, 벽이면 찧기
+  run = arena('ara', [['shieldman', 4, 4]], { hand: ['strike', 'strike', 'strike', 'strike'] });
+  e = RUN.room(run).enemies[0];
+  h = run.hero;
+  assert.equal(D.ENEMIES.shieldman.ai, 'shield');
+  const before = h.hp;
+  RUN.act(run, { t: 'end' });
+  assert.deepEqual([h.x, h.y], [2, 4], '방패에 1칸 밀려났다');
+  assert.equal(before - h.hp, Math.max(1, D.ENEMIES.shieldman.dmg - 2), '밀치기는 약타');
+  run = arena('ara', [['shieldman', 2, 4]], { hand: ['strike', 'strike', 'strike', 'strike'] });
+  e = RUN.room(run).enemies[0];
+  h = run.hero;
+  RUN.room(run).tiles = RUN.room(run).tiles.map((row, y) => (y === 4 ? row.slice(0, 4) + '#' + row.slice(5) : row));
+  const before2 = h.hp;
+  RUN.act(run, { t: 'end' });
+  assert.deepEqual([h.x, h.y], [3, 4], '벽에 막혀 밀리지 않는다');
+  assert.equal(before2 - h.hp, D.ENEMIES.shieldman.dmg, '찧기는 온전한 피해');
+
+  // 잿불 단지: 조준 → 던지기, 십자 칸이 불탄다. 근접 타격은 조준을 흐트러뜨린다.
+  run = arena('ara', [['slinger', 7, 4]], { hand: ['strike', 'strike', 'strike', 'strike'] });
+  e = RUN.room(run).enemies[0];
+  h = run.hero;
+  assert.equal(D.ENEMIES.slinger.ai, 'firepot');
+  RUN.act(run, { t: 'end' });
+  assert.equal(e.intent?.type, 'throw', '단지를 든다');
+  RUN.act(run, { t: 'move', x: 3, y: 2 });
+  RUN.act(run, { t: 'end' });
+  const rm = RUN.room(run);
+  assert.ok(rm.fire.length >= 3, '십자 칸이 불탄다: ' + rm.fire.length);
+  assert.ok(rm.fire.some(f => f.x === 3 && f.y === 4));
+  assert.equal(rm.fire[0].left, D.RULES.fire.turns, '막 붙은 불은 정해진 턴을 온전히 탄다');
+  assert.equal(RUN.preview(run, { t: 'move', x: 3, y: 4 }).ok, false, '불길을 지나는 경로는 없다(목적지만 허용)');
+  const pv = RUN.preview(run, { t: 'move', x: 3, y: 3 });
+  assert.match(pv.text, /불길 피해/);
+  const hp2 = h.hp;
+  RUN.act(run, { t: 'move', x: 3, y: 3 });
+  assert.equal(hp2 - h.hp, D.RULES.fire.dmg, '불길을 밟으면 피해');
+  e.hp = 0;
+  RUN.room(run).enemies = [];
+  run.mode = 'combat';
+  RUN.act(run, { t: 'end' });
+  assert.equal(rm.fire.length, 0, '전투가 끝나면 꺼진다');
+});
+
+test('행상(금화 소비처): 창고가 있으면 날마다 열린 지역 재료 몇 종을 비싸게 소량 판다. 산 만큼 줄고 새 날에 품목이 바뀐다', () => {
+  const g = G.newGame();
+  assert.deepEqual(G.market(g), [], '창고 없으면 행상 없음');
+  g.facilities.stash = 1;
+  g.gold = 100;
+  const m = G.market(g);
+  assert.equal(m.length, D.RULES.shop.buyKinds);
+  assert.ok(
+    m.every(x => D.REGIONS.verdant.materials.includes(x.mat) && !['relic', 'scroll'].includes(x.mat)),
+    '열린 지역 재료만, 특수 재료 제외'
+  );
+  assert.deepEqual(G.market(g), m, '같은 날은 같은 품목');
+  const it = m[0];
+  assert.equal(it.price, Math.round(D.MATERIALS[it.mat].value * D.RULES.shop.buyMul));
+  assert.ok(G.buyMat(g, it.mat).ok);
+  assert.ok(G.buyMat(g, it.mat).ok);
+  assert.equal(G.buyMat(g, it.mat).ok, false, '품목당 수량 제한');
+  assert.equal(g.stock[it.mat], 2);
+  assert.equal(g.gold, 100 - it.price * 2);
+  g.gold = 0;
+  assert.match(G.buyMat(g, m[1].mat).reason, /금화/);
+  G.newDay(g);
+  assert.equal(G.market(g).find(x => x.mat === it.mat)?.left ?? D.RULES.shop.buyQty, D.RULES.shop.buyQty, '새 날에는 물량 회복');
 });

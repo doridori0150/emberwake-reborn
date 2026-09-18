@@ -153,19 +153,26 @@
     $('#guild').hidden = screen !== 'guild';
     $('#run').hidden = screen !== 'run';
   }
+  // 행동 타입 표시명(주 행동/보조 행동/반응/자유). 데이터에 없는 slot 은 그대로 보여 준다.
+  const slotName = c => (D.ACTION_TYPES && D.ACTION_TYPES[c.slot]) || c.slot;
   function cardHTML(c, o = {}) {
     return (
       '<div class="top">' +
       icon(c.art) +
       '<span>' +
       c.name +
-      '</span></div><span class="slotbadge">' +
-      (c.slot === 'main' ? '주 행동' : '보조') +
+      '</span></div><span class="slotbadge ' +
+      c.slot +
+      '">' +
+      slotName(c) +
       '</span><div class="txt">' +
       c.text +
       '</div><div class="meta">' +
       (c.target === 'self' ? '자신' : '사거리 ' + c.range) +
       (c.exhaust ? ' · 소진' : '') +
+      (c.charge ? ' · 충전 ' + c.charge : '') +
+      ' · T' +
+      (c.tier || 1) +
       '</div>' +
       (o.key ? '<span class="key">' + o.key + '</span>' : '')
     );
@@ -246,6 +253,7 @@
               require: Gs.shop.done ? { flag: '__never' } : null
             },
             { label: '창고를 본다 (재고·급매·확장)' },
+            { label: '행상에게 재료를 산다 (오늘 ' + G.market(Gs).filter(m => m.left > 0).length + '종 · 금화 ' + Gs.gold + ')' },
             { label: '그만둔다' }
           ]
         },
@@ -254,6 +262,7 @@
           onChoose: k => {
             if (k === 0) openShop();
             else if (k === 1) openDrawer('stash');
+            else if (k === 2) openMarket();
           }
         }
       );
@@ -265,6 +274,51 @@
         }
       }
     );
+  }
+  // 행상: 금화로 재료를 조금 산다(금화 소비처). 품목은 날마다 바뀌고 수량이 적다.
+  function openMarket() {
+    const Gs = state.guild;
+    const box = modal(
+      '<h2>행상 — ' +
+        Gs.day +
+        '일째</h2><p class="lead">기준가의 ' +
+        D.RULES.shop.buyMul +
+        '배. 날마다 품목이 바뀌고 품목당 ' +
+        D.RULES.shop.buyQty +
+        '개까지.</p><div id="mkList" class="cardlist"></div><div class="row"><span id="mkGold" class="src" style="flex:1"></span><button id="mkClose" class="primary" type="button">닫기</button></div>'
+    );
+    const draw = () => {
+      const wrap = box.querySelector('#mkList');
+      wrap.innerHTML = '';
+      box.querySelector('#mkGold').textContent = '금화 ' + Gs.gold;
+      for (const it of G.market(Gs)) {
+        const d = el('div', 'item');
+        d.innerHTML =
+          '<div class="head"><span>' +
+          chip(it.mat, matName(it.mat)) +
+          '</span><span class="src">' +
+          it.price +
+          '금 · 남은 ' +
+          it.left +
+          ' · 보유 ' +
+          (Gs.stock[it.mat] || 0) +
+          '</span></div><div class="row"><button type="button" class="small"' +
+          (it.left < 1 || Gs.gold < it.price ? ' disabled' : '') +
+          '>1개 사기</button></div>';
+        d.querySelector('button').onclick = () => {
+          const r = G.buyMat(Gs, it.mat, 1);
+          if (!r.ok) return toast(r.reason);
+          ER.audio.play('ui');
+          persist();
+          draw();
+          renderGuild();
+        };
+        wrap.append(d);
+      }
+      if (!G.market(Gs).length) wrap.innerHTML = '<p class="src">오늘은 행상이 오지 않았다.</p>';
+    };
+    draw();
+    box.querySelector('#mkClose').onclick = closeModal;
   }
   /* 가게: 진열(재료·수량·가격) → 장사(손님이 하나씩 와서 반응) → 결산. 결과는 guild.shopDay 가 한 번에 계산하고 화면은 그것을 재생만 한다. */
   function openShop() {
@@ -1081,7 +1135,7 @@
               D.RULES.maxCopies +
               '</span></span><span class="x">＋</span>'
           );
-        b.title = '[' + (c.slot === 'main' ? '주 행동' : '보조') + '] ' + c.text;
+        b.title = '[' + slotName(c) + ' · T' + (c.tier || 1) + '] ' + c.text;
         b.disabled = n >= D.RULES.maxCopies || me.deck.length >= D.RULES.deckSize;
         b.onclick = () => {
           const r = G.deckAdd(Gs, S.hero, cid);
@@ -1459,10 +1513,19 @@
         (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)
           ? '<p class="src">개발: <a href="editor.html" style="color:inherit">콘텐츠 도구 열기</a> (방·몬스터 편집)</p>'
           : '') +
-        '<div class="row">' +
+        '<p class="src">버그 제보: 아래 「진단 정보 복사」로 버전·시드·최근 행동·저장을 한 번에 복사해 제보에 붙여 넣으세요. 빌드 ' +
+        ((ER.BUILD && ER.BUILD.version + ' ' + ER.BUILD.commit) || '개발판') +
+        ' · 콘텐츠 ' +
+        contentHash() +
+        '</p><div class="row">' +
         (inRun ? '<button id="stGiveUp" class="danger" type="button">원정 포기 (전리품 상실)</button>' : '') +
+        '<button id="stDiag" type="button">진단 정보 복사</button>' +
+        (!inRun && state.guild?.lastReport?.log?.length ? '<button id="stLastLog" type="button">지난 원정 기록</button>' : '') +
         '<button id="stSaves" type="button">저장 관리</button><button id="stClose" class="primary" type="button">닫기</button></div>'
     );
+    box.querySelector('#stDiag').onclick = copyDiag;
+    if (box.querySelector('#stLastLog'))
+      box.querySelector('#stLastLog').onclick = () => openLog(state.guild.lastReport.log, '지난 원정 기록');
     const f = box.querySelector('#stFast'),
       s = box.querySelector('#stSound');
     f.checked = state.settings.fast;
@@ -1510,12 +1573,76 @@
     renderRun();
   }
   const run = () => state.run;
+  // 진단용 최근 행동 기록(원정 행동 40개). 버그 제보 때 설정 → 진단 정보 복사로 함께 나간다.
+  const diag = { acts: [] };
+  function noteAct(r, a, res) {
+    diag.acts.push({
+      turn: r.turn,
+      time: r.time,
+      mode: r.mode,
+      room: r.roomId ?? r.room,
+      a,
+      ok: res.ok,
+      why: res.ok ? undefined : res.reason
+    });
+    if (diag.acts.length > 40) diag.acts.shift();
+  }
+  function contentHash() {
+    try {
+      return (ER.rng.hash(JSON.stringify(ER.CONTENT || {})) >>> 0).toString(16);
+    } catch (e) {
+      return '?';
+    }
+  }
+  function diagBundle() {
+    const b = ER.BUILD || { version: 'dev', commit: 'dev' };
+    return {
+      app: 'emberwake-reborn',
+      version: b.version,
+      commit: b.commit,
+      builtAt: b.builtAt,
+      contentHash: contentHash(),
+      at: new Date().toISOString(),
+      ua: navigator.userAgent,
+      screen: innerWidth + 'x' + innerHeight,
+      run: state.run
+        ? {
+            seed: state.run.seed,
+            region: state.run.regionId,
+            hero: state.run.heroId,
+            turn: state.run.turn,
+            time: state.run.time,
+            mode: state.run.mode,
+            status: state.run.status
+          }
+        : null,
+      lastReport: state.guild?.lastReport
+        ? { outcome: state.guild.lastReport.outcome, seed: state.guild.lastReport.seed, log: state.guild.lastReport.log }
+        : null,
+      acts: diag.acts,
+      save: ER.save.pack(state)
+    };
+  }
+  async function copyDiag() {
+    const text = JSON.stringify(diagBundle());
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('진단 정보를 복사했다 (' + Math.round(text.length / 1024) + 'KB). 제보에 붙여 넣자.');
+    } catch (e) {
+      const box = modal(
+        '<h2>진단 정보</h2><p class="src">복사가 막혀 있어 아래 내용을 직접 선택해 복사하세요.</p><textarea style="width:100%;height:40vh" readonly></textarea><div class="row"><button id="dgClose" class="primary" type="button">닫기</button></div>'
+      );
+      box.querySelector('textarea').value = text;
+      box.querySelector('#dgClose').onclick = closeModal;
+    }
+  }
   async function doAct(a) {
     const r0 = run();
     if (!r0 || runView.busy || modalOpen()) return;
     if (a.t === 'end') (($('#turnBanner').className = 'turnbanner enemy'), ($('#turnBanner').textContent = '적 턴…'));
     const hp0 = r0.hero.hp;
     const res = RUN.act(r0, a);
+    noteAct(r0, a, res);
     if (!res.ok) {
       toast(res.reason);
       renderRun();
@@ -1535,6 +1662,17 @@
     await runView.play(evs);
     if (r0.status !== 'active') return finishRun();
     renderRun();
+    if (!state.flags.combatTip && evs.some(e => e.t === 'combat') && !r0.test) {
+      // 첫 전투 안내(한 번만): 행동 구조와 예고·반응을 짧게
+      state.flags.combatTip = true;
+      persist();
+      const box = modal(
+        '<h2>첫 전투</h2><p class="lead">내 턴마다 <b>이동</b> + <b>주 행동 1</b> + <b>보조 행동 1</b>. 카드 배지가 행동 종류입니다.</p><p>· <b>주 행동</b>: 공격·큰 기술 (F 기본 공격, G 방어)<br>· <b>보조 행동</b>: 준비·회복·R 숨 고르기<br>· <b>반응</b>: 걸어 두면 적 턴에 조건이 맞을 때 1회 발동 (주·보조를 쓰지 않음)<br>· <b>자유</b>: 탐사 준비, 같은 카드는 턴당 1회<br>· <b>충전</b>이 붙은 카드(T3)는 원정당 ' +
+          D.RULES.charges +
+          '회, 야영에서 회복</p><p class="src">적이 무기를 치켜들면 <b>빗금 친 칸</b>이 다음 턴 공격 범위입니다. 예고가 없는 약한 공격은 방어로 받아내세요. <kbd>V</kbd>로 위협 범위, <kbd>Space</kbd>로 턴 종료.</p><div class="row"><button class="primary big" id="ctOk" type="button">알겠다</button></div>'
+      );
+      box.querySelector('#ctOk').onclick = closeModal;
+    }
     if (a.t === 'end') {
       const blocked = evs.filter(e => e.t === 'dmg' && e.id === 'hero' && e.kind === 'block').reduce((n, e) => n + e.n, 0),
         lost = hp0 - r0.hero.hp,
@@ -1685,8 +1823,15 @@
           pips(h.main, 1, 'main') +
           '</span><span>보조' +
           pips(h.bonus, 1, 'bonus') +
-          '</span></div>'
+          '</span>' +
+          (h.reaction
+            ? '<span class="react" title="적 턴에 조건이 맞으면 1회 발동한다">반응: ' + D.CARDS[h.reaction.id].name + '</span>'
+            : '') +
+          '</div>'
         : '') +
+      '<div class="pips"><span title="T3 카드(연막·지면 강타 등)가 함께 쓰는 원정당 충전. 야영에서 체력 대신 1 회복.">충전' +
+      pips(r.charges || 0, D.RULES.charges || 0, 'charge') +
+      '</span></div>' +
       '<div class="sub">덱 ' +
       r.deck.draw.length +
       ' · 버림 ' +
@@ -1780,7 +1925,7 @@
       );
       bs.lastChild.title =
         '[' +
-        (sp.slot === 'main' ? '주 행동' : '보조 행동') +
+        slotName(sp) +
         ' + 투지 ' +
         D.RULES.gauge.cost +
         '] ' +
@@ -1796,7 +1941,7 @@
     hand.innerHTML = '';
     r.deck.hand.forEach((cid, i) => {
       const c = RUN.card(r, cid),
-        usable = !(combat && ((c.slot === 'main' && h.main < 1) || (c.slot === 'bonus' && h.bonus < 1))),
+        usable = !RUN.slotReason(r, c.slot, c),
         b = el(
           'button',
           'card ' +
@@ -1841,13 +1986,7 @@
     kbTarget = null;
     if (sel?.kind === 'card') {
       const c = RUN.card(r, r.deck.hand[sel.i]);
-      const why =
-        r.mode === 'combat' &&
-        (c.slot === 'main' && r.hero.main < 1
-          ? '주 행동을 이미 썼다'
-          : c.slot === 'bonus' && r.hero.bonus < 1
-            ? '보조 행동을 이미 썼다'
-            : null);
+      const why = RUN.slotReason(r, c.slot, c);
       if (why) {
         toast(why);
         sel = null;
@@ -1889,7 +2028,7 @@
         '<span><b>' +
         c.name +
         '</b> · ' +
-        (r.mode === 'combat' ? (c.slot === 'main' ? '주 행동' : '보조 행동') : '시간 ' + D.RULES.time.card) +
+        RUN.costText(r, c) +
         ' — ' +
         (c.target === 'self'
           ? '카드를 다시 누르거나 Enter로 사용'
@@ -1905,7 +2044,7 @@
         '</b> · 투지 ' +
         D.RULES.gauge.cost +
         ' + ' +
-        (sp.slot === 'main' ? '주 행동' : '보조 행동') +
+        slotName(sp) +
         ' — ' +
         sp.text +
         ' · 대상 클릭 · Tab 전환 · Enter 확정 · Esc 취소</span>';
@@ -1975,13 +2114,16 @@
   function interact(o, it) {
     if (it.method === 'extract') {
       if (it.blocked) return toast(it.blocked);
-      return confirmExtract(o);
+      return confirmExtract(o, it);
     }
     doAct({ t: 'interact', id: o.id, method: it.method });
   }
-  function confirmExtract(o) {
+  function confirmExtract(o, it) {
     const r = run(),
       list = r.bag.map(s => chip(s.mat, matName(s.mat) + ' ×' + s.qty)).join('');
+    const risk = it?.note
+      ? '<p class="issue">' + it.note + ' — 체력 ' + r.hero.hp + '/' + r.hero.maxHp + '. 쓰러지면 전리품을 잃습니다.</p>'
+      : '';
     const left = RUN.room(r).objects.length;
     const box = modal(
       '<h2>길드로 귀환할까요?</h2><p class="lead">귀환하면 이번 원정은 끝나고 가방의 전리품이 창고에 들어갑니다. 붉은달까지 ' +
@@ -1995,6 +2137,7 @@
             D.REGIONS[r.regionId].objective.name +
             '을(를) 아직 줍지 않았습니다. (다음 지역 개방에는 영향 없음)</p>'
           : '') +
+        risk +
         '<div class="row"><button id="exNo" type="button">계속 탐사 <kbd>Esc</kbd></button><button id="exYes" class="primary big" type="button">귀환 확정</button></div>'
     );
     box.querySelector('#exNo').onclick = closeModal;
@@ -2353,11 +2496,13 @@
       };
     });
   }
-  function openLog() {
+  function openLog(lines, title) {
     const r = run();
     const box = modal(
-      '<h2>원정 기록</h2><div class="logbox">' +
-        r.log
+      '<h2>' +
+        (title || '원정 기록') +
+        '</h2><div class="logbox">' +
+        (lines || r.log)
           .slice()
           .reverse()
           .map(l => '<div>' + l + '</div>')

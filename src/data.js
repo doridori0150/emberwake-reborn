@@ -19,7 +19,20 @@
     handMax: 7,
     bagSlots: 6,
     gearSlots: 2,
-    shop: { slots: 2, customers: 4, cheap: 0.75, fair: 1.0, high: 1.15, quickSell: 0.6, demandDrop: 0.05, demandRecover: 0.2 }, // 가게: 기본 진열 칸·손님 수, 반응 기준(가격÷손님이 생각한 값), 급매 비율, 수요 하락·회복
+    shop: {
+      slots: 2,
+      customers: 4,
+      cheap: 0.75,
+      fair: 1.0,
+      high: 1.15,
+      quickSell: 0.6,
+      demandDrop: 0.05,
+      demandRecover: 0.2,
+      buyMul: 3,
+      buyKinds: 3,
+      buyQty: 2
+    }, // 가게: 기본 진열 칸·손님 수, 반응 기준(가격÷손님이 생각한 값), 급매 비율, 수요 하락·회복, 행상 매입가 배율·하루 품목 수·품목당 수량
+    dayMinTime: 8, // 원정에서 이만큼 시간을 써야 하루가 넘어간다(빈 원정으로 날짜·소진·수요를 초기화하는 우회 방지)
     deplete: { perRun: 2, recover: 1, max: 4, step: 0.15 }, // 지역 소진: 원정마다 쌓이는 소진, 하루마다 회복, 상한, 소진 1당 재료 수량 감소율
     warn: { hp: 0.3, time: 0.8 }, // 탈출 경고: 체력 비율, 붉은달까지 쓴 시간 비율
     town: {
@@ -32,6 +45,8 @@
       decorWorth: 0.02,
       decorWorthMax: 0.1
     }, // 배치 보너스: 인접 판정 거리, 공방↔창고 제작 재료 −n, 훈련소↔연구실 훈련 재료 −n, 가게 주변 장식 반경·장식 n개당 손님 +1·최대, 장식당 손님이 쳐주는 값 +%·최대
+    charges: 2,
+    fire: { dmg: 2, turns: 2 }, // 잿불 단지가 남기는 불길: 밟으면 받는 피해, 타는 턴 수 // T3 카드(charge:1)가 함께 쓰는 원정당 충전 수. 야영에서 체력 대신 1 회복 가능
     gimmick: { chance: 0.5, barrelDmg: 5 }, // 던전 기믹: 적이 있는 방에 기믹이 놓일 확률, 폭발통 피해
     level: { guardRadius: 3, patrolDoorDist: 3, hazardMax: 3, handmade: 0.4 }, // 방 구성: 경비 반경, 순찰로와 문 사이 거리, 방당 경비 옆 위험 지형 수, 수제 방이 있을 때 쓰는 확률
     guardBlock: 3,
@@ -66,8 +81,12 @@
     moonshard: { name: '달빛 결정', stack: 3, value: 20, tier: '붉은달 한정', use: '판매용 고가 전리품' }
   };
 
+  /* 카드의 행동 타입(slot): main 주 행동 · bonus 보조 행동 · reaction 반응(내 턴에 걸어 두면 적 턴의 지정 사건에 1회 발동, 주·보조를 쓰지 않음)
+     · free 자유 행동(주·보조를 쓰지 않는 탐사 준비, 같은 카드는 턴당 1회). 티어(tier)는 1 기본 · 2 연구 · 3 비상수단.
+     charge: 1 인 카드(T3)는 원정당 공용 충전(RULES.charges)을 1 쓴다. 야영에서 체력 대신 충전 1을 고를 수 있다. */
+  const ACTION_TYPES = { main: '주 행동', bonus: '보조 행동', reaction: '반응', free: '자유' };
   const C = (id, name, slot, type, range, target, text, extra) =>
-    Object.assign({ id, name, slot, type, range, target, text, source: 'basic', art: 'cardart.finisher' }, extra);
+    Object.assign({ id, name, slot, type, range, target, text, source: 'basic', art: 'cardart.finisher', tier: 1 }, extra);
   const CARDS = {};
   [
     // ── 공용 기초
@@ -96,7 +115,7 @@
       exhaust: true,
       art: 'cardart.heal'
     }),
-    C('harvest', '정밀 채집', 'bonus', 'explore', 0, 'self', '다음 채집 수량 +2.', { special: 'harvest', art: 'cardart.harvest' }),
+    C('harvest', '정밀 채집', 'free', 'explore', 0, 'self', '다음 채집 수량 +2.', { special: 'harvest', art: 'cardart.harvest' }),
     C(
       'shove',
       '밀어치기',
@@ -117,17 +136,27 @@
     ),
     C('spark', '불꽃 탄환', 'main', 'attack', 4, 'enemy', '시야 내 적에게 피해 3, 화상 1.', { dmg: 3, burn: 1, art: 'cardart.fire' }),
     // ── 아라: 방어/반격
-    C('riposte', '반격 태세', 'main', 'defense', 0, 'self', '방어 4. 다음 내 턴까지 근접 공격을 받을 때마다 피해 4로 반격.', {
-      block: 4,
-      retaliate: 4,
-      hero: 'ara',
-      source: 'hero',
-      art: 'cardart.shieldLance',
-      upgrades: [
-        { id: 'a', name: '날카롭게', text: '반격 피해 6.', patch: { retaliate: 6 } },
-        { id: 'b', name: '버티며', text: '방어 6.', patch: { block: 6 } }
-      ]
-    }),
+    C(
+      'riposte',
+      '반격 태세',
+      'reaction',
+      'defense',
+      0,
+      'self',
+      '반응: 다음 근접 공격 1회를 방어 4로 받아내고 피해 4로 되친다(다음 내 턴까지).',
+      {
+        block: 4,
+        retaliate: 4,
+        trigger: 'melee',
+        hero: 'ara',
+        source: 'hero',
+        art: 'cardart.shieldLance',
+        upgrades: [
+          { id: 'a', name: '날카롭게', text: '반격 피해 6.', patch: { retaliate: 6 } },
+          { id: 'b', name: '버티며', text: '방어 6.', patch: { block: 6 } }
+        ]
+      }
+    ),
     C('bulwark', '철벽', 'main', 'defense', 0, 'self', '방어 8.', { block: 8, hero: 'ara', source: 'hero', art: 'cardart.bastion' }),
     C('shield_bash', '방패 강타', 'main', 'attack', 1, 'enemy', '피해 2 + 현재 방어(최대 8). 방어는 유지된다.', {
       dmg: 2,
@@ -229,7 +258,7 @@
       source: 'research1',
       art: 'cardart.rewind'
     }),
-    C('scout', '탐색 도면', 'bonus', 'explore', 0, 'self', '인접한 방과 그 너머 방의 종류를 지도에 표시. 소진.', {
+    C('scout', '탐색 도면', 'free', 'explore', 0, 'self', '인접한 방과 그 너머 방의 종류를 지도에 표시. 소진.', {
       special: 'scout',
       exhaust: true,
       source: 'research1',
@@ -277,19 +306,19 @@
       source: 'research2',
       art: 'cardart.shieldLance'
     }),
-    C('smoke', '연막', 'bonus', 'special', 0, 'self', '모든 적의 조준을 끊고 이번 적 턴의 원거리 공격을 막는다. 소진.', {
+    C('smoke', '연막', 'bonus', 'special', 0, 'self', '[T3] 모든 적의 조준을 끊고 이번 적 턴의 원거리 공격을 막는다. 충전 1.', {
       special: 'smoke',
       exhaust: true,
       source: 'research2',
       art: 'cardart.eclipse'
     }),
-    C('lockpick', '해체 요령', 'bonus', 'explore', 0, 'self', '다음 상자 판정에 +4. 소진.', {
+    C('lockpick', '해체 요령', 'free', 'explore', 0, 'self', '다음 상자 판정에 +4. 소진.', {
       special: 'lockpick',
       exhaust: true,
       source: 'research2',
       art: 'cardart.renew'
     }),
-    C('quake', '지면 강타', 'main', 'attack', 0, 'self', '인접한 모든 적을 1칸 밀치고 피해 2. 충돌 시 +3.', {
+    C('quake', '지면 강타', 'main', 'attack', 0, 'self', '[T3] 인접한 모든 적을 1칸 밀치고 피해 2. 충돌 시 +3. 충전 1.', {
       dmg: 2,
       special: 'quake',
       push: 1,
@@ -529,8 +558,9 @@
       dmg: 3,
       speed: 5,
       detect: 5,
-      ai: 'pack',
+      ai: 'lunge',
       size: 42,
+      note: '2~4칸 거리에서 웅크렸다가 다음 턴 뛰어들어 문다. 예고 칸 밖으로 나가면 헛물을 켜고 빈틈.',
       gold: [2, 3],
       loot: [
         ['hide', 0.6],
@@ -548,6 +578,7 @@
       armor: 1,
       ai: 'heavy',
       size: 54,
+      note: '장갑 1. 곁에서 약하게 견제하고 다음 턴 깊은 내려찍기(전방 2×3)를 예고한다.',
       gold: [5, 7],
       loot: [
         ['coal', 0.8],
@@ -563,9 +594,10 @@
       speed: 3,
       detect: 5,
       range: 5,
-      ai: 'ranged',
+      ai: 'firepot',
       size: 50,
       gold: [4, 6],
+      note: '한 턴 조준한 뒤 잿불 단지를 던진다. 맞은 자리 십자 칸이 2턴 불탄다(밟으면 피해 2). 시야를 끊거나 근접 타격으로 조준을 흐트러뜨리자.',
       loot: [
         ['coal', 0.5],
         ['flax', 0.4]
@@ -731,7 +763,10 @@
     pack: '무리: 같은 종이 곁에 있으면 피해 +1',
     ranged: '사수: 한 턴 조준 후 발사',
     caster: '술사: 발밑 문양 예고·아군 치유',
-    heavy: '중장: 내려찍기 3칸 예고',
+    heavy: '중장: 곁에서 약타 견제 + 다음 턴 전방 2×3 깊은 내려찍기 예고',
+    lunge: '도약: 2~4칸에서 웅크렸다가 다음 턴 뛰어들어 물기(예고 칸 밖이면 헛물)',
+    shield: '방패병: 예고 없는 약한 밀치기(1칸 밀림), 등 뒤가 막히면 찧기',
+    firepot: '투척병: 조준 후 잿불 단지 — 십자 칸이 2턴 불탄다',
     none: '움직이지 않음(특성만 작동)',
     boss: '수호자: pattern 순서대로 예고'
   };
@@ -1438,7 +1473,18 @@
   }
   applySpawns(CONTENT.spawns);
 
+  // 티어 자동 배정: 기본·대원 1, 연구 1단계 2, 연구 2단계 3. charge 는 명시한 카드만(연구 단계로 원정 제한을 걸지 않는다).
+  for (const c of Object.values(CARDS)) {
+    if (c.source === 'research1') c.tier = 2;
+    else if (c.source === 'research2') c.tier = 3;
+  }
+  for (const id of ['smoke', 'quake'])
+    if (CARDS[id]) {
+      CARDS[id].charge = 1;
+      CARDS[id].exhaust = false;
+    }
   ER.data = {
+    ACTION_TYPES,
     TOWN,
     NPCS,
     DECOR,

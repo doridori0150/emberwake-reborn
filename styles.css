@@ -50,6 +50,8 @@ button.small { padding:3px 8px; font-size:.85rem; }
 .pip { display:inline-block; width:10px; height:10px; margin-left:2px; border-radius:50%; background:var(--green); } .pip.off { background:#33403a; }
 .pip.main { border-radius:2px; transform:rotate(45deg); background:var(--amber); } .pip.bonus { border-radius:2px; background:var(--teal); } .pip.main.off,.pip.bonus.off { background:#3a3a3a; }
 .pip.gauge { background:var(--violet); } .pip.gauge.off { background:#352d4a; }
+.pip.charge { border-radius:2px; background:var(--red); } .pip.charge.off { background:#3d2a2a; }
+.pips .react { color:var(--violet); font-weight:700; }
 .basics button.special { border-color:#5b4a86; color:#e3d4ff; } .basics button.special:disabled { color:var(--dim); }
 .blockbadge { color:#9fd0ff; font-weight:700; }
 .goal-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
@@ -75,6 +77,8 @@ button.small { padding:3px 8px; font-size:.85rem; }
 .card .slotbadge { position:absolute; top:-7px; right:6px; font-size:.68rem; padding:1px 6px; border-radius:8px; font-weight:700; }
 .card.main .slotbadge { background:var(--amber); color:#241605; } .card.bonus .slotbadge { background:var(--teal); color:#062621; }
 .card.main { border-color:#6b5230; } .card.bonus { border-color:#2f6259; }
+.card.reaction .slotbadge { background:var(--violet); color:#1d1430; } .card.free .slotbadge { background:var(--green); color:#14260c; }
+.card.reaction { border-color:#4d3f70; } .card.free { border-color:#3f5f2e; }
 .card .txt { font-size:.72rem; color:#c9cfd0; line-height:1.25; overflow:hidden; flex:1; }
 .card .key { position:absolute; left:6px; bottom:3px; font-size:.68rem; color:var(--dim); }
 .card .meta { font-size:.68rem; color:var(--dim); text-align:right; }

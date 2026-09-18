@@ -7,3 +7,4 @@ node_modules/
 *.css
 *.md
 *.json
+src/build-info.js
