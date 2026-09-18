@@ -112,6 +112,11 @@
       if (!String(p.text || '').trim()) out.push('빈 대사가 있다');
       if (p.portrait && !D.PORTRAITS[p.portrait]) out.push('없는 초상화: ' + p.portrait);
     }
+    if (
+      (ev.choices || []).length &&
+      ev.choices.every(c => c.require && (c.require.gold || Object.keys(c.require.mat || {}).length || c.require.flag))
+    )
+      out.push('모든 선택지에 조건이 있다 — 아무것도 못 고르면 게임이 멈춘다. 조건 없는 선택지를 하나 두세요');
     (ev.choices || []).forEach((c, i) => {
       if (!String(c.label || '').trim()) out.push('선택지 ' + (i + 1) + ': 글이 없다');
       if (c.require?.gold < 0 || Object.values(c.require?.mat || {}).some(n => !(n >= 1)))

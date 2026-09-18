@@ -3,12 +3,13 @@
    사용법: node tools/sim.cjs [지역] [대원] [횟수] [목표: boss|loot] */
 'use strict';
 require('../src/guild.js');
+require('../src/bot.js');
 const ER = globalThis.ER,
   RUN = ER.run,
   M = ER.map,
   D = ER.data;
 
-function bot(run, goal, trace) {
+function bot(run, goal, trace, opts = {}) {
   let guard = 0;
   const stuck = () => {
     throw new Error('교착: ' + JSON.stringify({ room: run.roomId, mode: run.mode, hero: run.hero, time: run.time }));
@@ -42,7 +43,21 @@ function bot(run, goal, trace) {
   };
   const goDoor = d => {
     const [x, y] = M.DOOR[d];
-    return act({ t: 'move', x, y });
+    const r = act({ t: 'move', x, y });
+    if (r.ok) return r;
+    // 위험 지형에 둘러싸여 길이 없으면 사람처럼 한 칸 밟고 나간다(목적지로 찍으면 밟을 수 있다)
+    const rm = RUN.room(run),
+      h = run.hero,
+      step = [
+        [0, -1],
+        [1, 0],
+        [0, 1],
+        [-1, 0]
+      ]
+        .map(([dx, dy]) => [h.x + dx, h.y + dy])
+        .find(([sx, sy]) => rm.tiles[sy]?.[sx] === 'h' && RUN.pathTo(run, sx, sy));
+    if (step && act({ t: 'move', x: step[0], y: step[1] }).ok) return act({ t: 'move', x, y });
+    return r;
   };
   const moveNear = (x, y) => {
     let best = null;
@@ -52,9 +67,10 @@ function bot(run, goal, trace) {
       [0, 1],
       [-1, 0]
     ]) {
-      const p = RUN.pathTo(run, x + dx, y + dy);
+      const p = RUN.pathTo(run, x + dx, y + dy),
+        hz = RUN.room(run).tiles[y + dy]?.[x + dx] === 'h'; // 위험 지형 칸은 마지막 수단
       if (x + dx === run.hero.x && y + dy === run.hero.y) return 'there';
-      if (p && (!best || p.cost < best.cost)) best = { x: x + dx, y: y + dy, cost: p.cost, path: p.path };
+      if (p && (!best || p.cost + (hz ? 50 : 0) < best.cost)) best = { x: x + dx, y: y + dy, cost: p.cost + (hz ? 50 : 0), path: p.path };
     }
     if (!best) return null;
     if (run.mode === 'combat') {
@@ -74,6 +90,29 @@ function bot(run, goal, trace) {
     if (++guard > 3000) stuck();
     if (run.pendingDraft) {
       act({ t: 'draft', pick: 0 });
+      continue;
+    }
+    if (run.pendingEvent) {
+      // 고를 수 있는 첫 선택지(조건이 모자란 것은 건너뛴다)
+      let k = 0;
+      while (k < 8 && !act({ t: 'event', choice: k }).ok) k++;
+      if (k >= 8) stuck();
+      continue;
+    }
+    if (opts.smart && run.mode === 'combat') {
+      // 목표를 이뤘거나 추적자가 왔으면 곁의 귀환문으로 빠져나간다
+      const portal = RUN.nearbyObjects(run).find(o => o.kind === 'portal');
+      if (
+        portal &&
+        (run.flags.objective || run.stalker?.state === 'here' || run.time > run.limit) &&
+        run.hero.main > 0 &&
+        act({ t: 'interact', id: portal.id, method: 'extract' }).ok
+      )
+        continue;
+      if (run.stats.rounds > 400) stuck();
+      // 대원별 전투 봇(src/bot.js)에게 전투를 맡긴다
+      ER.bot.fight(run, run.heroId, 60);
+      if (run.status === 'active' && run.mode === 'combat') act({ t: 'end' });
       continue;
     }
     const rm = RUN.room(run),
@@ -175,7 +214,10 @@ function bot(run, goal, trace) {
     if (camp && h.hp < h.maxHp * 0.6 && act({ t: 'interact', id: camp.id, method: 'rest' }).ok) continue;
     const bagFull = run.bag.length >= RUN.bagSlots(run),
       done = goal === 'boss' ? run.flags.objective : bagFull;
-    const retreat = done || h.hp < h.maxHp * 0.35 || run.time > run.limit * 0.85 || (goal === 'loot' && run.time > run.limit * 0.5);
+    // 성소가 열렸으면(장치 완료) 시간이 빠듯해도 수호자에게 간다: 사람도 이 판단을 한다. 체력이 낮으면 물러난다.
+    const pushBoss = goal === 'boss' && run.devicesOn >= run.devicesNeed && !run.flags.bossDead && h.hp >= h.maxHp * 0.6,
+      retreat =
+        done || h.hp < h.maxHp * 0.35 || (run.time > run.limit * 0.85 && !pushBoss) || (goal === 'loot' && run.time > run.limit * 0.5);
     if (retreat) {
       if (run.roomId === 0) {
         const portal = rm.objects.find(o => o.kind === 'portal');

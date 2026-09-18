@@ -1582,3 +1582,23 @@ test('마을 배치: 시설·장식을 겹치지 않게 놓고, 인접 보너스
   assert.deepEqual(G.sanitize(old), []);
   assert.ok(old.guild.layout.workshop && Array.isArray(old.guild.decor), '옛 저장에도 배치 칸이 생긴다');
 });
+
+test('귀환문: 적이 곁에 있어도 귀환할 수 있고, 곁의 근접 적은 기회 공격을 한다(추적자에게 갇히지 않는다)', () => {
+  const run = arena('ara', [['goblin', 4, 4]]);
+  const rm = RUN.room(run);
+  rm.objects.push({ id: 'oP', kind: 'portal', x: 2, y: 4 });
+  const opts = RUN.interactions(run, rm.objects[0]);
+  assert.equal(opts[0].blocked, undefined);
+  assert.match(opts[0].note || '', /기회 공격/);
+  const hp = run.hero.hp;
+  assert.ok(RUN.act(run, { t: 'interact', id: 'oP', method: 'extract' }).ok);
+  assert.equal(run.status, 'extracted');
+  assert.ok(run.hero.hp < hp, '기회 공격을 받았다');
+});
+test('캠페인 봇: 새 게임에서 전체 루프(원정→정산→투자→가게)가 예외 없이 돌고, 첫 지역 수호자까지 진행된다', () => {
+  const { campaign } = require('../tools/campaign.cjs');
+  const out = campaign(7, 30, false);
+  assert.ok(!out.events.some(e => /예외|실패/.test(e)), out.events.join(' / '));
+  assert.ok(out.runs >= 25);
+  assert.ok(out.facilities.workshop >= 1);
+});

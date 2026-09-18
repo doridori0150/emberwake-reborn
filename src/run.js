@@ -2251,12 +2251,15 @@
     if (o.kind === 'objective') out.push({ method: 'objective', label: REGIONS[run.regionId].objective.name + ' 회수', cost: '무료' });
     if (o.kind === 'pile') out.push({ method: 'pile', label: '바닥의 물품 줍기', cost: '무료' });
     if (o.kind === 'portal') {
-      const near = alertIn(room(run)).some(e => dist(e, run.hero) <= 2);
+      // 적이 붙어 있어도 귀환은 막지 않는다(추적자에게 갇히지 않도록). 대신 곁의 근접 적이 기회 공격을 한다.
+      const hits = adjacentAlert(run, run.hero.x, run.hero.y).filter(e => (edef(e).range || 1) === 1);
       out.push({
         method: 'extract',
         label: '길드로 귀환',
         cost: combat ? '주 행동' : '무료',
-        blocked: near ? '경계 중인 적이 2칸 안에 있다' : null
+        note: hits.length
+          ? '곁의 적 ' + hits.length + '이(가) 기회 공격을 한다(피해 ' + hits.map(e => enemyDmg(run, e)).join('+') + ')'
+          : null
       });
     }
     return out;
@@ -2400,6 +2403,12 @@
     } else if (a.method === 'pile') takePile(run, o);
     else if (a.method === 'extract') {
       if (combat) h.main -= 1;
+      for (const e of adjacentAlert(run, h.x, h.y).filter(x => (edef(x).range || 1) === 1)) {
+        ev(run, { t: 'attack', who: e.id, tx: h.x, ty: h.y, anim: 'attack' });
+        say(run, edef(e).name + '의 기회 공격!');
+        hurtHero(run, enemyDmg(run, e), { melee: true, enemy: e });
+        if (run.status !== 'active') return { ok: true };
+      }
       run.status = 'extracted';
       say(run, '귀환문을 통과했다.');
       ev(run, { t: 'extract' });
