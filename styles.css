@@ -129,3 +129,9 @@ label.opt { display:flex; gap:8px; align-items:center; margin:8px 0; }
 
 .warns { margin-top:6px; padding:4px 8px; border:1px solid #7a3a36; border-radius:6px; background:rgba(224,96,90,.12); color:#ffb3ad; font-size:.82rem; }
 .regionpick .warn { color:#f3c77e; }
+/* 마을 꾸미기 */
+.buildbtn { position:absolute; right:12px; top:12px; background:rgba(18,23,26,.88); }
+.buildbar { position:absolute; left:12px; right:12px; bottom:12px; background:rgba(14,17,19,.94); border:1px solid var(--line); border-radius:10px; padding:10px 12px; display:flex; flex-direction:column; gap:8px; max-height:46%; overflow:auto; }
+.buildbar[hidden] { display:none; } .buildbar h4 { margin:0; font-size:.92rem; color:var(--dim); } .buildbar .row { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.buildbar button.pick { display:flex; flex-direction:column; align-items:flex-start; gap:2px; min-width:96px; } .buildbar button.pick.on { border-color:var(--amber); background:#3a2c17; } .buildbar button.pick small { color:var(--dim); font-size:.74rem; } .buildbar button.pick:disabled small { color:#a86; }
+.buildbar .bonus { font-size:.84rem; color:var(--green); } .buildbar .bonus .off { color:var(--dim); }

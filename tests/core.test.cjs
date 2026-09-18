@@ -1529,3 +1529,56 @@ test('지역 소진·재생: 같은 지역을 연달아 털면 재료가 줄고,
     '수제 방도 배율을 받되 1 밑으로는 안 간다'
   );
 });
+
+test('마을 배치: 시설·장식을 겹치지 않게 놓고, 인접 보너스가 제작·훈련·가게에 실제로 걸린다', () => {
+  const D = ER.data,
+    T = D.RULES.town,
+    g = G.newGame();
+  G.ensure(g);
+  assert.deepEqual(G.zoneOf(g, 'workshop'), D.TOWN.places.workshop.zone, '기본 배치는 예전 자리 그대로');
+  assert.deepEqual(G.spotOf(g, 'workshop'), D.TOWN.places.workshop.spot);
+  assert.equal(G.moveBuilding(g, 'workshop', 22, 4).ok, false, '창고와 겹침');
+  assert.equal(G.moveBuilding(g, 'workshop', 14, 3).ok, false, '문 앞');
+  assert.equal(G.moveBuilding(g, 'workshop', 27, 4).ok, false, '마을 밖');
+  assert.equal(G.moveBuilding(g, 'gate', 5, 5).ok, false, '문은 못 옮긴다');
+  g.facilities.workshop = 1;
+  g.facilities.stash = 1;
+  assert.equal(G.townBonus(g).craft, 0, '멀면 보너스 없음');
+  const full = G.target(g, { kind: 'gear', id: 'coat' }).cost;
+  assert.ok(G.moveBuilding(g, 'workshop', 17, 4).ok);
+  assert.equal(G.townBonus(g).craft, T.craftDiscount);
+  const cheap = G.target(g, { kind: 'gear', id: 'coat' }).cost;
+  assert.equal(cheap.flax, full.flax - T.craftDiscount);
+  assert.equal(cheap.resin, Math.max(1, full.resin - T.craftDiscount), '1 밑으로는 안 내려간다');
+  g.stock = { wood: 10, herb: 5, ore: 3, resin: 3 };
+  assert.equal(G.placeDecor(g, 'fountain', 10, 10).ok, false, '창고 2단계 필요');
+  assert.equal(G.placeDecor(g, 'crate', 22, 4).ok, false, '창고 위');
+  assert.ok(G.placeDecor(g, 'crate', 21, 7).ok);
+  assert.equal(g.stock.wood, 9);
+  assert.ok(G.placeDecor(g, 'lamp', 27, 5).ok);
+  assert.ok(G.placeDecor(g, 'bench', 9, 10).ok);
+  assert.equal(G.placeDecor(g, 'crate', 21, 7).ok, false, '장식끼리 겹침');
+  assert.equal(G.moveDecor(g, 1, 27, 6).ok, true);
+  assert.equal(G.moveDecor(g, 1, 21, 7).ok, false);
+  const b = G.townBonus(g);
+  assert.equal(b.decorNear, 2, '창고 주변 장식(짐 상자·등불)');
+  assert.equal(b.customers, Math.floor(2 / T.decorPerCustomer));
+  assert.ok(b.worth > 0);
+  const c0 = G.shopCustomers(g);
+  assert.ok(G.removeDecor(g, 0).ok);
+  assert.equal(G.townBonus(g).decorNear, 1);
+  assert.ok(G.shopCustomers(g) <= c0);
+  assert.equal(g.stock.wood, 7, '치워도 재료는 안 돌아온다');
+  g.facilities.barracks = 1;
+  g.facilities.observatory = 1;
+  g.roster.push('lumi');
+  assert.equal(G.townBonus(g).train, 0);
+  assert.ok(G.moveBuilding(g, 'observatory', 8, 12).ok);
+  assert.equal(G.townBonus(g).train, T.trainDiscount);
+  assert.equal(G.target(g, { kind: 'train', hero: 'ara' }).cost.herb, D.TRAINING[0].cost.herb - T.trainDiscount);
+  const old = { meta: { created: 'T' }, guild: G.newGame(), run: null };
+  delete old.guild.layout;
+  delete old.guild.decor;
+  assert.deepEqual(G.sanitize(old), []);
+  assert.ok(old.guild.layout.workshop && Array.isArray(old.guild.decor), '옛 저장에도 배치 칸이 생긴다');
+});

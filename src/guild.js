@@ -12,6 +12,13 @@
   // 이전 저장에는 없는 칸을 채운다(제작 옵션·이벤트 기록).
   function ensure(G) {
     G.day = G.day || 1;
+    if (!G.layout)
+      G.layout = Object.fromEntries(
+        Object.entries(D.TOWN.places)
+          .filter(([, p]) => p.movable)
+          .map(([k, p]) => [k, [p.zone[0], p.zone[2]]])
+      );
+    G.decor = G.decor || [];
     G.wear = G.wear || {};
     G.shop = G.shop || { done: false, notes: {}, demand: {}, last: null };
     G.gearOpts = G.gearOpts || {};
@@ -120,6 +127,8 @@
         '] ' +
         D.gearText(t.id);
       done = G.gearOwned.includes(t.id);
+      if (x.cost && townBonus(G).craft) effect += ' (공방↔창고 인접: 재료 −' + townBonus(G).craft + ')';
+      cost = x.cost ? discounted(x.cost, townBonus(G).craft) : cost;
       if (!x.cost) locked = '의뢰 보상';
       else if (G.facilities.workshop < x.tier) locked = '제작 공방 ' + x.tier + '단계 필요';
     } else if (t.kind === 'option') {
@@ -156,8 +165,12 @@
         T = TRAINING[Math.min(tier, TRAINING.length - 1)];
       done = tier >= TRAINING.length;
       name = h.name + ' ' + (tier + 1) + '차 훈련';
-      cost = T.cost;
-      effect = done ? '' : h.perks[tier].map(p => p.name + ': ' + p.text).join(' / ') + ' 중 하나';
+      cost = discounted(T.cost, townBonus(G).train);
+      effect = done
+        ? ''
+        : h.perks[tier].map(p => p.name + ': ' + p.text).join(' / ') +
+          ' 중 하나' +
+          (townBonus(G).train ? ' (훈련소↔연구실 인접: 재료 −' + townBonus(G).train + ')' : '');
       if (!G.roster.includes(t.hero)) locked = '아직 합류하지 않음';
       else if (G.facilities.barracks < T.need) locked = '훈련·회복실 ' + T.need + '단계 필요';
     } else if (t.kind === 'quest') {
@@ -264,7 +277,8 @@
   const SHOP = () => RULES.shop,
     quickPrice = (G, mat) => Math.max(1, Math.floor(MATERIALS[mat].value * SHOP().quickSell));
   const shopSlots = G => (G.facilities.stash < 1 ? 0 : SHOP().slots + G.facilities.stash);
-  const shopCustomers = G => SHOP().customers + shopSlots(G) + Math.floor(Object.values(G.facilities).reduce((a, b) => a + b, 0) / 3);
+  const shopCustomers = G =>
+    SHOP().customers + shopSlots(G) + Math.floor(Object.values(G.facilities).reduce((a, b) => a + b, 0) / 3) + townBonus(G).customers;
   function shopRng(seed) {
     let s = 0;
     for (const c of String(seed)) s = Math.imul(s ^ c.charCodeAt(0), 0x45d9f3b) >>> 0;
@@ -293,7 +307,7 @@
       const k = open[Math.floor(R() * open.length)],
         sh = list[k],
         demand = G.shop.demand[sh.mat] ?? 1;
-      const worth = MATERIALS[sh.mat].value * demand * (0.85 + R() * 0.4) * bonus,
+      const worth = MATERIALS[sh.mat].value * demand * (0.85 + R() * 0.4) * bonus * (1 + townBonus(G).worth),
         ratio = sh.price / worth,
         mood = ratio <= SHOP().cheap ? 'cheap' : ratio <= SHOP().fair ? 'happy' : ratio <= SHOP().high ? 'reluctant' : 'refuse',
         want = mood === 'refuse' ? 0 : Math.min(left[k], mood === 'reluctant' ? 1 : 1 + Math.floor(R() * 3));
@@ -317,6 +331,117 @@
     G.shop.last = { day: G.day, gold, sold };
     return { ok: true, visits, gold, sold, unsold: list.map((sh, k) => ({ mat: sh.mat, qty: left[k] })).filter(x => x.qty > 0) };
   }
+  /* ───── 마을 배치(배치식 건설 1단계): 시설·장식을 격자에 놓는다. 부지가 겹치지 않고 마을 안이면 된다.
+     인접 보너스는 RULES.town: 공방↔창고 가까우면 제작 재료 −1, 훈련소↔연구실 가까우면 훈련 재료 −1, 창고 주변 장식은 가게 손님·값을 올린다. */
+  const TOWN = () => D.TOWN,
+    TR = () => RULES.town;
+  function zoneOf(G, id) {
+    ensure(G);
+    const p = TOWN().places[id];
+    if (!p) return null;
+    const [x, y] = p.movable ? G.layout[id] || [p.zone[0], p.zone[2]] : [p.zone[0], p.zone[2]],
+      [w, h] = p.size || [p.zone[1] - p.zone[0] + 1, p.zone[3] - p.zone[2] + 1];
+    return [x, x + w - 1, y, y + h - 1];
+  }
+  const spotOf = (G, id) => {
+    const z = zoneOf(G, id);
+    return [(z[0] + z[1] + 1) / 2, z[3] + 0.4];
+  };
+  const decorZone = d => [d.x, d.x + (D.DECOR[d.kind]?.size[0] || 1) - 1, d.y, d.y + (D.DECOR[d.kind]?.size[1] || 1) - 1];
+  const overlap = (a, b) => a[0] <= b[1] && b[0] <= a[1] && a[2] <= b[3] && b[2] <= a[3];
+  const gap = (a, b) => Math.max(0, Math.max(a[0] - b[1], b[0] - a[1])) + Math.max(0, Math.max(a[2] - b[3], b[2] - a[3]));
+  function zones(G, skip) {
+    // 다른 부지 전부(시설·문·장식). skip: {facility:id} | {decor:index}
+    const out = [];
+    for (const id of Object.keys(TOWN().places)) if (!(skip?.facility === id)) out.push({ id, zone: zoneOf(G, id) });
+    G.decor.forEach((d, i) => {
+      if (skip?.decor !== i) out.push({ decor: i, zone: decorZone(d) });
+    });
+    return out;
+  }
+  function canPlace(G, size, x, y, skip) {
+    const [w, h] = size,
+      z = [x, x + w - 1, y, y + h - 1];
+    if (x < 1 || y < 3 || z[1] > TOWN().w - 2 || z[3] > TOWN().h - 2) return { ok: false, reason: '마을 밖이다' };
+    if (overlap(z, [TOWN().w / 2 - 1, TOWN().w / 2, 3, 4])) return { ok: false, reason: '문 앞은 비워 둔다' };
+    for (const o of zones(G, skip)) if (overlap(z, o.zone)) return { ok: false, reason: '다른 것과 겹친다' };
+    return { ok: true };
+  }
+  function moveBuilding(G, id, x, y) {
+    const p = TOWN().places[id];
+    if (!p?.movable) return { ok: false, reason: '옮길 수 없는 곳' };
+    const r = canPlace(G, p.size, x, y, { facility: id });
+    if (!r.ok) return r;
+    G.layout[id] = [x, y];
+    return { ok: true };
+  }
+  function decorTarget(G, kind) {
+    const d = D.DECOR[kind];
+    if (!d) return null;
+    const need = Object.entries(d.need || {}).find(([f, lv]) => (G.facilities[f] || 0) < lv);
+    const missing = {};
+    for (const [k, n] of Object.entries(d.cost)) if (have(G, k) < n) missing[k] = n - have(G, k);
+    return {
+      kind,
+      name: d.name,
+      cost: d.cost,
+      locked: need ? FACILITIES[need[0]].name + ' ' + need[1] + '단계 필요' : null,
+      missing,
+      can: !need && !Object.keys(missing).length
+    };
+  }
+  function placeDecor(G, kind, x, y) {
+    ensure(G);
+    const t = decorTarget(G, kind);
+    if (!t) return { ok: false, reason: '없는 장식' };
+    if (t.locked) return { ok: false, reason: t.locked };
+    if (!t.can)
+      return {
+        ok: false,
+        reason:
+          '재료 부족: ' +
+          Object.entries(t.missing)
+            .map(([k, n]) => MATERIALS[k].name + ' ' + n)
+            .join(', ')
+      };
+    const r = canPlace(G, D.DECOR[kind].size, x, y);
+    if (!r.ok) return r;
+    pay(G, t.cost);
+    G.decor.push({ kind, x, y });
+    return { ok: true };
+  }
+  function moveDecor(G, i, x, y) {
+    const d = G.decor[i];
+    if (!d) return { ok: false, reason: '없는 장식' };
+    const r = canPlace(G, D.DECOR[d.kind].size, x, y, { decor: i });
+    if (!r.ok) return r;
+    d.x = x;
+    d.y = y;
+    return { ok: true };
+  }
+  function removeDecor(G, i) {
+    if (!G.decor[i]) return { ok: false, reason: '없는 장식' };
+    G.decor.splice(i, 1);
+    return { ok: true }; // 재료는 돌려주지 않는다(옮기기는 공짜)
+  }
+  function townBonus(G) {
+    ensure(G);
+    const near = (a, b) => G.facilities[a] > 0 && G.facilities[b] > 0 && gap(zoneOf(G, a), zoneOf(G, b)) <= TR().adjacency,
+      stash = zoneOf(G, 'stash'),
+      decorNear =
+        G.facilities.stash > 0
+          ? G.decor.reduce((n, d) => n + (gap(decorZone(d), stash) <= TR().decorRange ? D.DECOR[d.kind]?.worth || 1 : 0), 0)
+          : 0;
+    return {
+      craft: near('workshop', 'stash') ? TR().craftDiscount : 0,
+      train: near('barracks', 'observatory') ? TR().trainDiscount : 0,
+      decorNear,
+      customers: Math.min(TR().decorMaxCustomers, Math.floor(decorNear / TR().decorPerCustomer)),
+      worth: Math.min(TR().decorWorthMax, decorNear * TR().decorWorth)
+    };
+  }
+  const discounted = (cost, n) =>
+    n ? Object.fromEntries(Object.entries(cost).map(([k, v]) => [k, k === 'gold' ? v : Math.max(1, v - n)])) : cost;
   /* 지역 소진: 같은 지역을 연달아 털면 재료 노드 수량이 줄고(원정마다 +perRun), 날이 지나면 회복한다(하루 −recover).
      다른 지역으로 가거나 며칠 쉬면 돌아온다. 수치는 RULES.deplete. */
   const DEP = () => RULES.deplete;
@@ -637,6 +762,15 @@
 
   ER.guild = {
     evHave,
+    zoneOf,
+    spotOf,
+    canPlace,
+    moveBuilding,
+    decorTarget,
+    placeDecor,
+    moveDecor,
+    removeDecor,
+    townBonus,
     wearOf,
     yieldOf,
     sanitize,

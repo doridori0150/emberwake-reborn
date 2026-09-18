@@ -22,6 +22,16 @@
     shop: { slots: 2, customers: 4, cheap: 0.75, fair: 1.0, high: 1.15, quickSell: 0.6, demandDrop: 0.05, demandRecover: 0.2 }, // 가게: 기본 진열 칸·손님 수, 반응 기준(가격÷손님이 생각한 값), 급매 비율, 수요 하락·회복
     deplete: { perRun: 2, recover: 1, max: 4, step: 0.15 }, // 지역 소진: 원정마다 쌓이는 소진, 하루마다 회복, 상한, 소진 1당 재료 수량 감소율
     warn: { hp: 0.3, time: 0.8 }, // 탈출 경고: 체력 비율, 붉은달까지 쓴 시간 비율
+    town: {
+      adjacency: 2,
+      craftDiscount: 1,
+      trainDiscount: 1,
+      decorRange: 3,
+      decorPerCustomer: 2,
+      decorMaxCustomers: 3,
+      decorWorth: 0.02,
+      decorWorthMax: 0.1
+    }, // 배치 보너스: 인접 판정 거리, 공방↔창고 제작 재료 −n, 훈련소↔연구실 훈련 재료 −n, 가게 주변 장식 반경·장식 n개당 손님 +1·최대, 장식당 손님이 쳐주는 값 +%·최대
     gimmick: { chance: 0.5, barrelDmg: 5 }, // 던전 기믹: 적이 있는 방에 기믹이 놓일 확률, 폭발통 피해
     level: { guardRadius: 3, patrolDoorDist: 3, hazardMax: 3, handmade: 0.4 }, // 방 구성: 경비 반경, 순찰로와 문 사이 거리, 방당 경비 옆 위험 지형 수, 수제 방이 있을 때 쓰는 확률
     guardBlock: 3,
@@ -1287,11 +1297,11 @@
     start: [15, 5],
     places: {
       gate: { spot: [15, 2.8], zone: [14, 15, 1, 2] },
-      board: { spot: [15, 9.4], zone: [14, 15, 8, 9] },
-      workshop: { spot: [5.5, 6.4], zone: [3, 7, 4, 6] },
-      stash: { spot: [24.5, 6.4], zone: [22, 26, 4, 6] },
-      barracks: { spot: [5, 14.4], zone: [3, 6, 12, 14] },
-      observatory: { spot: [24.5, 14.4], zone: [23, 26, 12, 14] }
+      board: { spot: [15, 9.4], zone: [14, 15, 8, 9], size: [2, 2], movable: true },
+      workshop: { spot: [5.5, 6.4], zone: [3, 7, 4, 6], size: [5, 3], movable: true },
+      stash: { spot: [24.5, 6.4], zone: [22, 26, 4, 6], size: [5, 3], movable: true },
+      barracks: { spot: [5, 14.4], zone: [3, 6, 12, 14], size: [4, 3], movable: true },
+      observatory: { spot: [24.5, 14.4], zone: [23, 26, 12, 14], size: [4, 3], movable: true }
     },
     roads: [
       [14, 15, 3, 18],
@@ -1300,6 +1310,35 @@
       [11, 18, 10, 11]
     ],
     fountain: [14, 15, 12, 13]
+  };
+  /* 마을 장식: 플레이어가 재료를 내고 마을 격자에 놓는다(배치식 건설 1단계). need 는 시설 단계 조건. content.js 의 decor 로 덮어쓰거나 추가한다.
+     가게(창고) 주변의 장식은 손님 수와 손님이 쳐주는 값을 올린다(RULES.town). */
+  const DECOR = {
+    lamp: {
+      name: '등불',
+      asset: 'decor.lamp',
+      size: [1, 1],
+      cost: { ore: 1, resin: 1 },
+      lit: true,
+      text: '밤에도 밝다. 가게 주변에 두면 손님이 는다.'
+    },
+    bench: { name: '벤치', asset: 'decor.bench', size: [2, 1], cost: { wood: 2 } },
+    plant: { name: '화분', asset: 'decor.plant', size: [1, 1], cost: { herb: 1, wood: 1 } },
+    banner: { name: '길드 깃발', asset: 'decor.banner', size: [1, 1], cost: { flax: 2, hide: 1 } },
+    crate: { name: '짐 상자', asset: 'decor.crate', size: [1, 1], cost: { wood: 1 } },
+    oak: { name: '참나무', asset: 'town.tree_oak', size: [1, 1], cost: { wood: 2, herb: 1 }, tall: true },
+    pine: { name: '침엽수', asset: 'town.tree_pine', size: [1, 1], cost: { wood: 2 }, tall: true },
+    bush: { name: '덤불', asset: 'town.bush', size: [1, 1], cost: { herb: 1 } },
+    rug: { name: '광장 융단', asset: 'decor.rug', size: [2, 1], cost: { flax: 3, hide: 1 }, need: { stash: 1 } },
+    fountain: {
+      name: '분수',
+      asset: 'decor.fountain',
+      size: [2, 2],
+      cost: { ore: 4, wood: 2, crystal: 1 },
+      need: { stash: 2 },
+      text: '마을의 자랑. 가게 손님이 가장 많이 는다(장식 3개 몫).',
+      worth: 3
+    }
   };
   const NPCS = {
     smith: {
@@ -1381,6 +1420,7 @@
     CONTENT.portraits || {}
   );
   replaceItems(NPCS, CONTENT.npcs);
+  replaceItems(DECOR, CONTENT.decor);
   for (const [k, n] of Object.entries(NPCS))
     if (!PORTRAITS['npc.' + k]) PORTRAITS['npc.' + k] = { name: n.name, asset: n.asset, tint: n.tint, image: n.portrait, auto: true };
   const EVENTS = CONTENT.events || [];
@@ -1401,6 +1441,7 @@
   ER.data = {
     TOWN,
     NPCS,
+    DECOR,
     BASE,
     GEAR_SLOTS,
     GEAR_EFFECTS,

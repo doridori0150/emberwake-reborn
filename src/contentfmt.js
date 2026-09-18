@@ -21,7 +21,7 @@
     if (!c || typeof c !== 'object' || Array.isArray(c)) return '콘텐츠는 객체여야 한다';
     if (!c.enemies || typeof c.enemies !== 'object' || Array.isArray(c.enemies)) return 'enemies 는 객체여야 한다';
     if (!Array.isArray(c.spawns) || !Array.isArray(c.rooms)) return 'spawns·rooms 는 배열이어야 한다';
-    for (const k of ['gear', 'craftOptions', 'portraits', 'npcs']) {
+    for (const k of ['gear', 'craftOptions', 'portraits', 'npcs', 'decor']) {
       if (c[k] && (typeof c[k] !== 'object' || Array.isArray(c[k]))) return k + ' 는 객체여야 한다';
       for (const id of Object.keys(c[k] || {})) if (!/^[a-z][a-z0-9_.]*$/.test(id)) return k + ' id 는 영문 소문자·숫자·_ 만 쓴다: ' + id;
     }
@@ -96,6 +96,7 @@
     dict('craftOptions');
     dict('portraits');
     dict('npcs');
+    dict('decor');
     L.push('  "tuning": ' + spaced(c.tuning || {}) + ',');
     {
       const ev = c.events || [];

@@ -54,6 +54,7 @@
   },
   "portraits": {},
   "npcs": {},
+  "decor": {},
   "tuning": {},
   "events": [
     {

@@ -533,6 +533,147 @@
       raf = requestAnimationFrame(frame);
     }
   }
+  /* ───── 마을 꾸미기: 시설을 옮기고 장식을 놓는다. 판정·비용은 guild.js(canPlace/moveBuilding/placeDecor), 화면의 집기·놓기는 guildview.startBuild. */
+  function openBuild() {
+    closeDrawer();
+    guildView.startBuild(null);
+    $('#buildBar').hidden = false;
+    renderBuildBar();
+  }
+  function closeBuild() {
+    guildView.endBuild();
+    $('#buildBar').hidden = true;
+    $('#buildBtn').textContent = '마을 꾸미기';
+  }
+  function renderBuildBar() {
+    const Gs = state.guild,
+      bar = $('#buildBar'),
+      it = guildView.build?.item,
+      b = G.townBonus(Gs);
+    if (bar.hidden) return;
+    $('#buildBtn').textContent = '꾸미기 끝내기';
+    const picked = it
+      ? it.facility
+        ? D.FACILITIES[it.facility]?.name || '게시판'
+        : it.decor
+          ? D.DECOR[it.decor].name
+          : D.DECOR[Gs.decor[it.decorIndex]?.kind]?.name
+      : null;
+    let html =
+      '<div class="row"><b>' +
+      (picked
+        ? picked + ' 을(를) 들고 있다 — 마을의 빈 자리를 누르세요'
+        : '마을의 시설·장식을 누르면 집어 들고, 아래에서 새 장식을 고릅니다') +
+      '</b><span style="flex:1"></span>' +
+      (it ? '<button id="bDrop" type="button">내려놓기</button>' : '') +
+      (it?.decorIndex != null ? '<button id="bRemove" class="danger" type="button">치우기(재료 반환 없음)</button>' : '') +
+      '<button id="bClose" type="button">끝내기 <kbd>Esc</kbd></button></div>';
+    html +=
+      '<div class="bonus">배치 보너스: <span class="' +
+      (b.craft ? '' : 'off') +
+      '">공방↔창고 인접 → 제작 재료 −' +
+      D.RULES.town.craftDiscount +
+      '</span> · <span class="' +
+      (b.train ? '' : 'off') +
+      '">훈련소↔연구실 인접 → 훈련 재료 −' +
+      D.RULES.town.trainDiscount +
+      '</span> · <span class="' +
+      (b.customers || b.worth ? '' : 'off') +
+      '">창고 주변 장식 ' +
+      b.decorNear +
+      ' → 손님 +' +
+      b.customers +
+      ', 값 +' +
+      Math.round(b.worth * 100) +
+      '%</span></div>';
+    html +=
+      '<h4>시설 옮기기</h4><div class="row">' +
+      Object.keys(D.TOWN.places)
+        .filter(id => D.TOWN.places[id].movable && (!D.FACILITIES[id] || G.facilityVisible(Gs, id)))
+        .map(
+          id =>
+            '<button class="pick' +
+            (it?.facility === id ? ' on' : '') +
+            '" data-fac="' +
+            id +
+            '" type="button">' +
+            (D.FACILITIES[id]?.name || '의뢰 게시판') +
+            '<small>부지 ' +
+            D.TOWN.places[id].size.join('×') +
+            '</small></button>'
+        )
+        .join('') +
+      '</div>';
+    html +=
+      '<h4>장식 놓기 — 재료를 낸다</h4><div class="row">' +
+      Object.keys(D.DECOR)
+        .map(k => {
+          const t = G.decorTarget(Gs, k),
+            d = D.DECOR[k];
+          return (
+            '<button class="pick' +
+            (it?.decor === k ? ' on' : '') +
+            '" data-decor="' +
+            k +
+            '" type="button"' +
+            (t.can ? '' : ' disabled') +
+            ' title="' +
+            (d.text || '') +
+            '">' +
+            d.name +
+            '<small>' +
+            (t.locked ||
+              Object.entries(d.cost)
+                .map(([m, n]) => matName(m) + ' ' + n)
+                .join(', ')) +
+            '</small></button>'
+          );
+        })
+        .join('') +
+      '</div>';
+    bar.innerHTML = html;
+    bar.querySelectorAll('[data-fac]').forEach(x => {
+      x.onclick = () => {
+        guildView.build.item = { facility: x.dataset.fac };
+        renderBuildBar();
+      };
+    });
+    bar.querySelectorAll('[data-decor]').forEach(x => {
+      x.onclick = () => {
+        guildView.build.item = { decor: x.dataset.decor };
+        renderBuildBar();
+      };
+    });
+    if ($('#bDrop'))
+      $('#bDrop').onclick = () => {
+        guildView.build.item = null;
+        renderBuildBar();
+      };
+    if ($('#bRemove'))
+      $('#bRemove').onclick = () => {
+        G.removeDecor(Gs, it.decorIndex);
+        guildView.build.item = null;
+        persist();
+        renderGuild();
+        renderBuildBar();
+      };
+    $('#bClose').onclick = closeBuild;
+  }
+  function onBuild(evt) {
+    const Gs = state.guild;
+    if (evt.type === 'hint') return guildToast(evt.text);
+    const it = evt.item,
+      r = it.facility
+        ? G.moveBuilding(Gs, it.facility, evt.x, evt.y)
+        : it.decor
+          ? G.placeDecor(Gs, it.decor, evt.x, evt.y)
+          : G.moveDecor(Gs, it.decorIndex, evt.x, evt.y);
+    if (!r.ok) return guildToast(r.reason);
+    ER.audio.play('build');
+    persist();
+    renderGuild();
+    renderBuildBar();
+  }
   function enterGuild() {
     G.fire(state.guild, 'guildVisit', {});
     show('guild');
@@ -546,6 +687,7 @@
     const Gs = state.guild;
     guildView.setState(Gs);
     G.ensure(Gs);
+    if (guildView.build) renderBuildBar();
     $('#guildStage').textContent = guildView.stageName() + ' · ' + Gs.day + '일째 ' + (G.dayPhase(Gs) === 'dusk' ? '해 질 녘' : '낮');
     setTimeout(checkGuildEvent, 0);
     const keys = ['gold', ...Object.keys(D.MATERIALS).filter(k => Gs.stock[k])];
@@ -2261,6 +2403,16 @@
       return;
     }
     if (!inRun) {
+      if (guildView.build) {
+        // 꾸미기 중: Esc = 들고 있는 것 내려놓기 → 한 번 더 누르면 끝내기
+        if (k === 'Escape') {
+          if (guildView.build.item) {
+            guildView.build.item = null;
+            renderBuildBar();
+          } else closeBuild();
+        }
+        return;
+      }
       const gd = { arrowup: 'up', w: 'up', arrowdown: 'down', s: 'down', arrowleft: 'left', a: 'left', arrowright: 'right', d: 'right' }[
         low
       ];
@@ -2441,6 +2593,8 @@
       }
     });
     $('#endTurn').onclick = () => doAct({ t: 'end' });
+    $('#buildBtn').onclick = () => (guildView.build ? closeBuild() : openBuild());
+    guildView.onBuild = onBuild;
     $('#sortieBtn').onclick = openPrep;
     document.addEventListener('keydown', onKey);
     document.querySelectorAll('[data-act]').forEach(b => {

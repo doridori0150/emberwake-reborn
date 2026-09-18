@@ -45,6 +45,8 @@
       this.cam = { x: 0, y: 0 };
       this.villagers = [];
       canvas.addEventListener('mousemove', e => {
+        const [wx, wy] = this.world(e);
+        this.hoverTile = [Math.floor(wx / T), Math.floor(wy / T)];
         this.hover = this.pick(e);
         canvas.style.cursor = this.hover ? 'pointer' : 'default';
       });
@@ -52,6 +54,7 @@
         this.hover = null;
       });
       canvas.addEventListener('click', e => {
+        if (this.build) return this.buildClick(e);
         const id = this.pick(e);
         if (id) return this.goTo(id);
         const [wx, wy] = this.world(e);
@@ -86,12 +89,27 @@
       return STAGE[t === 0 ? 0 : Math.min(STAGE.length - 1, 1 + Math.floor((t - 1) / 3))];
     }
     // 지금 마을에 나와 있는 주민: 시설 담당은 그 시설이 보일 때부터, 다른 대원은 문 근처에 서 있다.
+    // 시설 부지·발밑 기준점은 저장된 배치(G.layout)를 따른다(guild.zoneOf / spotOf). 문은 고정.
+    zone(id) {
+      return G.zoneOf(this.G, id);
+    }
+    spot(id) {
+      return G.spotOf(this.G, id);
+    }
     npcs() {
       const Gs = this.G,
         out = [];
       for (const [id, n] of Object.entries(D.NPCS)) {
         if (n.hidden || (n.role && !G.facilityVisible(Gs, n.role)) || (n.flag && !Gs.evFlags?.[n.flag])) continue;
-        out.push(Object.assign({ id }, n));
+        const q = Object.assign({ id }, n);
+        if (n.role && TOWN.places[n.role]) {
+          // 시설 담당 주민은 시설이 옮겨진 만큼 따라간다(기본 부지 기준 상대 위치)
+          const base = TOWN.places[n.role].zone,
+            z = this.zone(n.role);
+          q.x = n.x - base[0] + z[0];
+          q.y = n.y - base[2] + z[2];
+        }
+        out.push(q);
       }
       const posts = { ara: [13, 4, 'right'], noa: [17, 4, 'left'], lumi: [18, 6, 'left'] };
       for (const h of Gs.roster)
@@ -107,41 +125,43 @@
           });
       return out;
     }
+    decorZone(d) {
+      const sz = D.DECOR[d.kind]?.size || [1, 1];
+      return [d.x, d.x + sz[0] - 1, d.y, d.y + sz[1] - 1];
+    }
     blocked() {
       const s = new Set();
-      for (const p of Object.values(TOWN.places)) rectTiles(p.zone).forEach(k => s.add(k));
-      if (this.total() >= 7) rectTiles(TOWN.fountain).forEach(k => s.add(k));
+      for (const id of Object.keys(TOWN.places)) rectTiles(this.zone(id)).forEach(k => s.add(k));
+      for (const d of this.G.decor || []) rectTiles(this.decorZone(d)).forEach(k => s.add(k));
       for (const n of this.npcs()) s.add(n.x + ',' + n.y);
-      if (this.total() >= 1) {
-        s.add('8,5');
-        s.add('20,5');
-      }
       for (const k of this.trees()) s.add(k);
       return s;
     }
     trees() {
-      if (this._trees) return this._trees;
-      const r = rnd(11),
-        out = new Set(),
-        busy = new Set(
-          Object.values(TOWN.places).flatMap(p => {
-            const [x0, x1, y0, y1] = p.zone;
-            return rectTiles([x0 - 1, x1 + 1, y0 - 1, y1 + 2]);
-          })
-        );
-      for (let i = 0; i < 46; i++) {
-        const x = 1 + Math.floor(r() * (TW - 2)),
-          y = 3 + Math.floor(r() * (TH - 4)),
-          k = x + ',' + y;
-        if (
-          !ROAD.has(k) &&
-          !busy.has(k) &&
-          Math.abs(x - 15) > 2 &&
-          !Object.values(D.NPCS).some(n => Math.abs(n.x - x) + Math.abs(n.y - y) < 2)
-        )
-          out.add(k);
+      // 들나무 후보는 고정(시드), 실제로 서는 자리는 지금의 시설·장식·주민을 피한다.
+      if (!this._treeCands) {
+        const r = rnd(11),
+          out = [];
+        for (let i = 0; i < 46; i++) {
+          const x = 1 + Math.floor(r() * (TW - 2)),
+            y = 3 + Math.floor(r() * (TH - 4));
+          if (!ROAD.has(x + ',' + y) && Math.abs(x - 15) > 2) out.push([x, y]);
+        }
+        this._treeCands = out;
       }
-      return (this._trees = out);
+      const busy = new Set();
+      for (const id of Object.keys(TOWN.places)) {
+        const [x0, x1, y0, y1] = this.zone(id);
+        rectTiles([x0 - 1, x1 + 1, y0 - 1, y1 + 2]).forEach(k => busy.add(k));
+      }
+      for (const d of this.G.decor || []) rectTiles(this.decorZone(d)).forEach(k => busy.add(k));
+      const npcs = this.npcs(),
+        out = new Set();
+      for (const [x, y] of this._treeCands) {
+        const k = x + ',' + y;
+        if (!busy.has(k) && !npcs.some(n => Math.abs(n.x - x) + Math.abs(n.y - y) < 2)) out.add(k);
+      }
+      return out;
     }
     walkable(x, y, b) {
       return x >= 1 && x <= TW - 2 && y >= 3 && y <= TH - 2 && !b.has(x + ',' + y);
@@ -160,7 +180,7 @@
       for (const n of this.npcs()) tryTile('npc:' + n.id, n.x, n.y);
       if (best) return best.id;
       for (const id of ['gate', 'board'])
-        for (const k of rectTiles(TOWN.places[id].zone)) {
+        for (const k of rectTiles(this.zone(id))) {
           const [x, y] = k.split(',').map(Number);
           tryTile(id, x, y);
         }
@@ -212,7 +232,7 @@
         const n = this.npcs().find(q => 'npc:' + q.id === id);
         return n ? [[n.x, n.y]] : [];
       }
-      return rectTiles(TOWN.places[id].zone).map(k => k.split(',').map(Number));
+      return rectTiles(this.zone(id)).map(k => k.split(',').map(Number));
     }
     // 시설 id 로 부르면 그 시설의 담당 주민에게 간다(바로가기 버튼·시설 그림 클릭).
     resolve(id) {
@@ -254,6 +274,96 @@
         this.onPick(id);
       }
       return !!id;
+    }
+    /* ───── 꾸미기 모드: 시설·장식을 집어 옮기거나 새 장식을 놓는다. 규칙(겹침·비용)은 guild.canPlace/placeDecor 가 판정한다.
+       this.build = { item: {facility:id} | {decor:kind} | {decorIndex:i} | null }. onBuild(action) 으로 앱에 알린다. */
+    startBuild(item) {
+      this.build = { item: item || null };
+      this.av.path = [];
+    }
+    endBuild() {
+      this.build = null;
+    }
+    buildSize() {
+      const it = this.build?.item;
+      if (!it) return null;
+      if (it.facility) return TOWN.places[it.facility].size;
+      if (it.decor) return D.DECOR[it.decor]?.size || [1, 1];
+      if (it.decorIndex != null) return D.DECOR[this.G.decor[it.decorIndex]?.kind]?.size || [1, 1];
+      return null;
+    }
+    buildAt() {
+      // 집은 것의 왼쪽 위 칸: 마우스 칸이 부지 가운데가 되게 한다
+      const sz = this.buildSize(),
+        t = this.hoverTile;
+      if (!sz || !t) return null;
+      return [t[0] - Math.floor((sz[0] - 1) / 2), t[1] - Math.floor((sz[1] - 1) / 2)];
+    }
+    buildCheck() {
+      const it = this.build?.item,
+        at = this.buildAt();
+      if (!it || !at) return null;
+      const skip = it.facility ? { facility: it.facility } : it.decorIndex != null ? { decor: it.decorIndex } : null;
+      return Object.assign({ at }, G.canPlace(this.G, this.buildSize(), at[0], at[1], skip));
+    }
+    buildClick(e) {
+      const it = this.build.item;
+      if (!it) {
+        // 아무것도 안 집은 상태: 화면의 시설·장식을 누르면 집는다
+        const id = this.pick(e);
+        if (!id) return;
+        if (id.startsWith('decor:')) this.build.item = { decorIndex: +id.slice(6) };
+        else if (TOWN.places[id]?.movable) this.build.item = { facility: id };
+        else if (this.onBuild) this.onBuild({ type: 'hint', text: '옮길 수 없는 곳입니다.' });
+        return;
+      }
+      const c = this.buildCheck();
+      if (!c) return;
+      if (!c.ok) return this.onBuild && this.onBuild({ type: 'hint', text: c.reason });
+      this.build.item = null;
+      if (this.onBuild) this.onBuild({ type: 'place', item: it, x: c.at[0], y: c.at[1] });
+    }
+    drawBuild(ctx, cam) {
+      // 격자, 부지 테두리, 집은 것의 그림자
+      ctx.strokeStyle = 'rgba(255,255,255,.08)';
+      ctx.lineWidth = 1;
+      for (let x = Math.floor(cam.x / T); x <= Math.floor((cam.x + CW) / T); x++)
+        for (let y = Math.floor(cam.y / T); y <= Math.floor((cam.y + CH) / T); y++) ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1);
+      const zoneRect = (z, color) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(z[0] * T + 2, z[2] * T + 2, (z[1] - z[0] + 1) * T - 4, (z[3] - z[2] + 1) * T - 4);
+        ctx.setLineDash([]);
+      };
+      for (const id of Object.keys(TOWN.places)) if (TOWN.places[id].movable) zoneRect(this.zone(id), 'rgba(95,201,184,.7)');
+      for (const d of this.G.decor || []) zoneRect(this.decorZone(d), 'rgba(240,165,69,.7)');
+      const c = this.buildCheck();
+      if (c) {
+        const [w, h] = this.buildSize();
+        ctx.fillStyle = c.ok ? 'rgba(142,207,114,.35)' : 'rgba(224,96,90,.35)';
+        ctx.fillRect(c.at[0] * T, c.at[1] * T, w * T, h * T);
+        const it = this.build.item,
+          asset = it.facility
+            ? this.G.facilities[it.facility]
+              ? this.assetFor(it.facility)
+              : null
+            : D.DECOR[it.decor || this.G.decor[it.decorIndex]?.kind]?.asset;
+        if (asset) {
+          ctx.save();
+          ctx.globalAlpha = 0.6;
+          gfx.drawFit(
+            ctx,
+            asset,
+            (c.at[0] + w / 2) * T,
+            (c.at[1] + h) * T,
+            it.facility ? 230 : Math.max(52, w * T - 8),
+            it.facility ? 200 : h * T + 40
+          );
+          ctx.restore();
+        }
+        if (!c.ok) this.tag(ctx, (c.at[0] + w / 2) * T, c.at[1] * T - 10, c.reason, '#20140a', '#ffb3ad');
+      }
     }
     tick(now) {
       const a = this.av,
@@ -424,33 +534,28 @@
         add(null, 'decor.banner', 12.6 * T, 2.3 * T, 60, 110);
         add(null, 'decor.banner', 17.4 * T, 2.3 * T, 60, 110);
       }
+      // 문 앞 등불 두 개는 고정. 나머지 장식은 플레이어가 놓는다(G.decor).
       for (const [lx, ly] of [
         [13.5, 3.4],
-        [16.5, 3.4],
-        [13.5, 7.4],
-        [16.5, 7.4],
-        [13.5, 15.4],
-        [16.5, 15.4],
-        [9, 7.4],
-        [21, 7.4],
-        [9, 15.4],
-        [21, 15.4]
+        [16.5, 3.4]
       ])
-        add(null, 'decor.lamp', lx * T, ly * T, 40, 70, { lit: total >= 1 && (dusk || total >= 3), unlit: total < 1 });
-      if (total >= 3) {
-        add(null, 'decor.bench', 12 * T, 11.4 * T, 110, 50);
-        add(null, 'decor.bench', 19 * T, 11.4 * T, 110, 50);
-        add(null, 'decor.plant', 13.4 * T, 9.6 * T, 50, 60);
-        add(null, 'decor.plant', 16.6 * T, 9.6 * T, 50, 60);
-      }
-      if (total >= 1) {
-        add(null, 'decor.crate', 8.5 * T, 5.9 * T, 56, 56);
-        add(null, 'decor.crate', 20.5 * T, 5.9 * T, 56, 56);
-      }
-      if (total >= 7) add(null, 'decor.fountain', 15 * T, 13.8 * T, 140, 120);
-      add('board', 'facility.board', P.board.spot[0] * T, P.board.spot[1] * T, 120, 90);
+        add(null, 'decor.lamp', lx * T, ly * T, 40, 70, { lit: total >= 1, unlit: total < 1 });
+      (Gs.decor || []).forEach((d, i) => {
+        const def = D.DECOR[d.kind];
+        if (!def) return;
+        const [x0, x1, y0, y1] = this.decorZone(d),
+          cx = ((x0 + x1 + 1) / 2) * T,
+          by = (y1 + 0.95) * T,
+          w = (x1 - x0 + 1) * T;
+        add('decor:' + i, def.asset, cx, by, def.tall ? 120 : Math.max(52, w - 8), def.tall ? 150 : def.size[1] * T + 40, {
+          lit: def.lit,
+          decor: true
+        });
+      });
+      const bspot = this.spot('board');
+      add('board', 'facility.board', bspot[0] * T, bspot[1] * T, 120, 90);
       for (const id of Object.keys(D.FACILITIES)) {
-        const [sx, sy] = P[id].spot,
+        const [sx, sy] = this.spot(id),
           lv = Gs.facilities[id];
         if (!G.facilityVisible(Gs, id)) {
           items.push({ ruin: true, hidden: true, cx: sx * T, by: sy * T });
@@ -617,10 +722,11 @@
         }
         if (it.id) {
           this.rects[it.id] = { x, y, w, h };
-          this.nameplate(ctx, it, now);
+          if (!it.opt.decor) this.nameplate(ctx, it, now);
         }
       }
-      if (nearId) {
+      if (this.build) this.drawBuild(ctx, cam);
+      if (nearId && !this.build) {
         const n = nearId.startsWith('npc:') ? this.npcs().find(q => 'npc:' + q.id === nearId) : null,
           tiles = this.targetTiles(nearId),
           cx = ((Math.min(...tiles.map(t => t[0])) + Math.max(...tiles.map(t => t[0])) + 1) / 2) * T,
@@ -650,8 +756,9 @@
       ctx.save();
       for (const [id, p] of Object.entries(TOWN.places)) {
         if (D.FACILITIES[id] && !G.facilityVisible(Gs, id)) continue;
-        const sx = p.spot[0] * T - cam.x,
-          sy = (p.spot[1] - 1) * T - cam.y;
+        const spot = this.spot(id),
+          sx = spot[0] * T - cam.x,
+          sy = (spot[1] - 1) * T - cam.y;
         if (sx > 30 && sx < CW - 30 && sy > 30 && sy < CH - 30) continue;
         const ex = Math.max(28, Math.min(CW - 28, sx)),
           ey = Math.max(60, Math.min(CH - 70, sy)),
